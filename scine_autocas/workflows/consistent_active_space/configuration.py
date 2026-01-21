@@ -203,7 +203,7 @@ class ConsistentActiveSpaceConfiguration:
                 "localize_virtuals": True,
                 "optimized_mapping": True,
                 "work_dir": "serenity/",
-                "basis_set_set": self.basis_set,
+                "basis_set": self.basis_set,
                 "score_start": 1.0,
                 "skip_localization": False,
                 "system_names": self.system_names,

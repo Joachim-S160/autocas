@@ -1,3 +1,7 @@
 [submodule "dev"]
 	path = dev
 	url = https://github.com/qcscine/development-utils.git
+[submodule "autocas"]
+	path = autocas
+	url = https://github.com/Joachim-S160/autocas.git
+	branch = heavy-elements-support
