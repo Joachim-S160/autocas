@@ -3,6 +3,8 @@ __copyright__ = """This code is licensed under the 3-clause BSD license.
 Copyright ETH Zurich, Department of Chemistry and Applied Biosciences, Reiher Group.
 See LICENSE.txt for details. """
 
+import os
+import shutil
 from typing import List, Tuple
 from optparse import OptionParser
 from scine_autocas.workflows.consistent_active_space.configuration import ConsistentActiveSpaceConfiguration
@@ -101,16 +103,23 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
     # Otherwise, we run the SCF calculation with Serenity.
     if serenity is None:
         serenity = Serenity(molecules, settings)
-        serenity.load_or_write_molcas_orbitals()
         # Check if using external orbitals (e.g., from OpenMolcas with DKH2)
         if configuration.use_external_orbitals:
             print("Loading external orbitals (skipping Serenity SCF)...")
             print(f"External orbital files: {configuration.external_orbital_files}")
-            # Set the external orbital files as the source for loading
-            serenity.settings.molcas_orbital_files = configuration.external_orbital_files
-            serenity.load_molcas_orbitals()
-            # Skip SCF - orbitals are already loaded
+            # Copy external orbital files to the initial directory with correct system names
+            # Serenity expects files at {molcas_orbital_files[i]}/{system_name}.ScfOrb
+            initial_dir = serenity.settings.molcas_orbital_files[0]  # All systems use same initial dir
+            for i, (ext_orb_file, sys_name) in enumerate(zip(configuration.external_orbital_files,
+                                                              configuration.system_names)):
+                dest_file = os.path.join(initial_dir, f"{sys_name}.ScfOrb")
+                print(f"  Copying {ext_orb_file} -> {dest_file}")
+                shutil.copy2(ext_orb_file, dest_file)
+            # Now load the external orbitals (which are now in the expected location)
+            serenity.load_or_write_molcas_orbitals()
+            # Skip Serenity SCF - we use the external orbitals directly
         else:
+            serenity.load_or_write_molcas_orbitals()
             serenity.calculate()
         orbital_map, unmappable_orbitals = serenity.get_orbital_map()
     names = serenity.settings.system_names
