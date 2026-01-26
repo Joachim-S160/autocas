@@ -127,7 +127,22 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
                 print(f"  Copying {ext_orb_file} -> {dest_file}")
                 shutil.copy2(ext_orb_file, dest_file)
             # Now load the external orbitals (which are now in the expected location)
+            # Debug: print eigenvalues BEFORE loading external orbitals
+            import qcserenity.serenipy as spy
+            print("  Eigenvalues BEFORE loading external orbitals:")
+            for i, sys in enumerate(serenity.systems):
+                orb_ctrl = sys.getActiveOrbitalController(spy.SCF_MODES.RESTRICTED)
+                eigenvalues = orb_ctrl.getEigenvalues()
+                print(f"    System {i}: min={eigenvalues.min():.2f}, max={eigenvalues.max():.2f} Ha, below -5.0: {(eigenvalues < -5.0).sum()}")
+
             serenity.load_or_write_molcas_orbitals()
+
+            # Debug: print eigenvalues AFTER loading external orbitals
+            print("  Eigenvalues AFTER loading external orbitals:")
+            for i, sys in enumerate(serenity.systems):
+                orb_ctrl = sys.getActiveOrbitalController(spy.SCF_MODES.RESTRICTED)
+                eigenvalues = orb_ctrl.getEigenvalues()
+                print(f"    System {i}: min={eigenvalues.min():.2f}, max={eigenvalues.max():.2f} Ha, below -5.0: {(eigenvalues < -5.0).sum()}")
             # Skip Serenity SCF - we use the external orbitals directly
         else:
             serenity.load_or_write_molcas_orbitals()
