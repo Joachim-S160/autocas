@@ -39,6 +39,12 @@ def run_from_command_line() -> None:
                       help="If given, core orbitals can be selected for the active space. By default, all core"
                            " orbitals are removed.")
     parser.add_option("-u", "--unmapable", dest="always_include_unmapables", default=False, action="store_true")
+    parser.add_option("-e", "--external_orbitals", dest="use_external_orbitals", action="store_true", default=False,
+                      help="If true, external orbital files (e.g., from OpenMolcas with DKH2) are used instead of "
+                           "running Serenity SCF. Use with -o to specify the orbital files.")
+    parser.add_option("-o", "--orbital_files", dest="external_orbital_files", default="", type="str",
+                      help="Comma-separated list of paths to external orbital files (e.g., OpenMolcas .ScfOrb files). "
+                           "One file per system is required. Use with -e flag.")
     parser.add_option("-y", "--yaml", dest="yaml_file", default="", type="str",
                       help="The configuration yaml file to use. If given, xyz files/loading paths must not be set"
                            " and all other options provided through the command line are ignored.")
@@ -96,7 +102,16 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
     if serenity is None:
         serenity = Serenity(molecules, settings)
         serenity.load_or_write_molcas_orbitals()
-        serenity.calculate()
+        # Check if using external orbitals (e.g., from OpenMolcas with DKH2)
+        if configuration.use_external_orbitals:
+            print("Loading external orbitals (skipping Serenity SCF)...")
+            print(f"External orbital files: {configuration.external_orbital_files}")
+            # Set the external orbital files as the source for loading
+            serenity.settings.molcas_orbital_files = configuration.external_orbital_files
+            serenity.load_molcas_orbitals()
+            # Skip SCF - orbitals are already loaded
+        else:
+            serenity.calculate()
         orbital_map, unmappable_orbitals = serenity.get_orbital_map()
     names = serenity.settings.system_names
     # Write canonical orbitals back to Molcas

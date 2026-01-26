@@ -25,7 +25,9 @@ class ConsistentActiveSpaceConfiguration:
         "xyz_files",
         "system_names",
         "base_load_path",
-        "project_name"
+        "project_name",
+        "use_external_orbitals",
+        "external_orbital_files"
     )
 
     def __init__(self):
@@ -85,6 +87,19 @@ class ConsistentActiveSpaceConfiguration:
         str
             The project name. Serenity and Molcas files will be written to this directory.
         """
+        self.use_external_orbitals: bool = False
+        """
+        bool
+            If true, external orbital files (e.g., from OpenMolcas with DKH2) are used instead of
+            running Serenity SCF. This is useful for heavy elements where relativistic effects
+            are important.
+        """
+        self.external_orbital_files: List[str] = []
+        """
+        List[str]
+            Paths to external orbital files (e.g., OpenMolcas .ScfOrb files) to load into Serenity.
+            One file per system is required when use_external_orbitals is True.
+        """
 
     def write_yaml_file(self, file_name: str = "consistent_cas.configuration.yaml") -> str:
         """
@@ -131,6 +146,16 @@ class ConsistentActiveSpaceConfiguration:
         for p in config.xyz_files:
             if not os.path.isfile(p):
                 raise FileNotFoundError(f"The file {p} does not exist.")
+        # Validate external orbital files if using external orbitals
+        if config.use_external_orbitals:
+            if not config.external_orbital_files:
+                raise ValueError("External orbital files must be provided when use_external_orbitals is True.")
+            if len(config.external_orbital_files) != n_systems:
+                raise ValueError(f"Number of external orbital files ({len(config.external_orbital_files)}) "
+                                 f"must match number of systems ({n_systems}).")
+            for p in config.external_orbital_files:
+                if not os.path.isfile(p):
+                    raise FileNotFoundError(f"The external orbital file {p} does not exist.")
 
     @classmethod
     def from_options(cls, options, xyz_files: List[str]):
@@ -158,6 +183,11 @@ class ConsistentActiveSpaceConfiguration:
         config.exclude_core = options.exclude_core
         config.unmappable = options.always_include_unmapables
         config.xyz_files = [os.path.abspath(p) if p[0] != "/" else p for p in xyz_files]
+        # Handle external orbitals option
+        config.use_external_orbitals = options.use_external_orbitals
+        if options.external_orbital_files:
+            config.external_orbital_files = [os.path.abspath(p) if p[0] != "/" else p
+                                              for p in options.external_orbital_files.split(",")]
         ConsistentActiveSpaceConfiguration.input_sanity_checks(config)
         config.base_load_path = os.path.join(*config.xyz_files[0].split("/")[:-1])  # type: ignore
         return config
@@ -212,6 +242,10 @@ class ConsistentActiveSpaceConfiguration:
         }
         if self.xyz_files:
             settings["Interface"]["xyz_files"] = self.xyz_files
+        # Add external orbital settings
+        if self.use_external_orbitals:
+            settings["Interface"]["use_external_orbitals"] = True
+            settings["Interface"]["external_orbital_files"] = self.external_orbital_files
         return settings
 
     def get_serenity_load_paths(self) -> List[str]:
