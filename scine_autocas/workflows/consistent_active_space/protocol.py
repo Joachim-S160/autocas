@@ -108,11 +108,22 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
             print("Loading external orbitals (skipping Serenity SCF)...")
             print(f"External orbital files: {configuration.external_orbital_files}")
             # Copy external orbital files to the initial directory with correct system names
-            # Serenity expects files at {molcas_orbital_files[i]}/{system_name}.ScfOrb
+            # Serenity reads from .scf.h5 files (HDF5 format), NOT .ScfOrb (ASCII)
+            # The .scf.h5 files contain MO_ENERGIES and MO_VECTORS datasets
             initial_dir = serenity.settings.molcas_orbital_files[0]  # All systems use same initial dir
             for i, (ext_orb_file, sys_name) in enumerate(zip(configuration.external_orbital_files,
                                                               configuration.system_names)):
-                dest_file = os.path.join(initial_dir, f"{sys_name}.ScfOrb")
+                # Determine the correct destination file based on the source file extension
+                # We support both .scf.h5 (preferred) and .ScfOrb files
+                if ext_orb_file.endswith('.scf.h5'):
+                    dest_file = os.path.join(initial_dir, f"{sys_name}.scf.h5")
+                elif ext_orb_file.endswith('.ScfOrb'):
+                    # Also copy .ScfOrb for compatibility, but warn that .scf.h5 is preferred
+                    dest_file = os.path.join(initial_dir, f"{sys_name}.ScfOrb")
+                    print(f"  WARNING: Using .ScfOrb file. For eigenvalues to be read correctly, use .scf.h5 files.")
+                else:
+                    # Try to guess based on file existence
+                    dest_file = os.path.join(initial_dir, f"{sys_name}.scf.h5")
                 print(f"  Copying {ext_orb_file} -> {dest_file}")
                 shutil.copy2(ext_orb_file, dest_file)
             # Now load the external orbitals (which are now in the expected location)
