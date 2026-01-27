@@ -27,7 +27,8 @@ class ConsistentActiveSpaceConfiguration:
         "base_load_path",
         "project_name",
         "use_external_orbitals",
-        "external_orbital_files"
+        "external_orbital_files",
+        "localization_method"
     )
 
     def __init__(self):
@@ -99,6 +100,15 @@ class ConsistentActiveSpaceConfiguration:
         List[str]
             Paths to external orbital files (e.g., OpenMolcas .ScfOrb files) to load into Serenity.
             One file per system is required when use_external_orbitals is True.
+        """
+        self.localization_method: str = "IBO"
+        """
+        str
+            The orbital localization method to use. Options are:
+            - "IBO" (default): Intrinsic Bond Orbitals
+            - "PIPEK_MEZEY": Pipek-Mezey localization
+            - "BOYS": Foster-Boys localization
+            - "EDMINSTON_RUEDENBERG": Edmiston-Ruedenberg localization
         """
 
     def write_yaml_file(self, file_name: str = "consistent_cas.configuration.yaml") -> str:
@@ -188,6 +198,8 @@ class ConsistentActiveSpaceConfiguration:
         if options.external_orbital_files:
             config.external_orbital_files = [os.path.abspath(p) if p[0] != "/" else p
                                               for p in options.external_orbital_files.split(",")]
+        # Handle localization method option
+        config.localization_method = options.localization_method
         ConsistentActiveSpaceConfiguration.input_sanity_checks(config)
         config.base_load_path = os.path.join(*config.xyz_files[0].split("/")[:-1])  # type: ignore
         return config
@@ -225,12 +237,18 @@ class ConsistentActiveSpaceConfiguration:
         Dict
             The settings for the Serenity interface.
         """
+        # Virtual localization is only supported for IBO/IAO in Serenity
+        # For PM, FB, ER we must disable it
+        localize_virtuals = self.localization_method in ["IBO", "IAO"]
+        if not localize_virtuals and self.localization_method != "IBO":
+            print(f"  Note: Virtual localization disabled for {self.localization_method} "
+                  "(only supported for IBO/IAO)")
         settings = {
             "Interface": {
                 "uhf": False,
-                "localisation_method": "IBO",
+                "localisation_method": self.localization_method,
                 "alignment": True,
-                "localize_virtuals": True,
+                "localize_virtuals": localize_virtuals,
                 "optimized_mapping": True,
                 "work_dir": "serenity/",
                 "basis_set": self.basis_set,

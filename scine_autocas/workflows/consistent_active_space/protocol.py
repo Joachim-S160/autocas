@@ -47,6 +47,9 @@ def run_from_command_line() -> None:
     parser.add_option("-o", "--orbital_files", dest="external_orbital_files", default="", type="str",
                       help="Comma-separated list of paths to external orbital files (e.g., OpenMolcas .ScfOrb files). "
                            "One file per system is required. Use with -e flag.")
+    parser.add_option("-L", "--localization", dest="localization_method", default="IBO", type="str",
+                      help="Orbital localization method. Options: IBO (default), PIPEK_MEZEY, BOYS, "
+                           "EDMINSTON_RUEDENBERG. Use PIPEK_MEZEY or BOYS for heavy elements where IBO fails.")
     parser.add_option("-y", "--yaml", dest="yaml_file", default="", type="str",
                       help="The configuration yaml file to use. If given, xyz files/loading paths must not be set"
                            " and all other options provided through the command line are ignored.")
