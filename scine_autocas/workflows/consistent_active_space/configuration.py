@@ -29,7 +29,8 @@ class ConsistentActiveSpaceConfiguration:
         "use_external_orbitals",
         "external_orbital_files",
         "localization_method",
-        "force_cas"
+        "force_cas",
+        "skip_localization"
     )
 
     def __init__(self):
@@ -118,6 +119,13 @@ class ConsistentActiveSpaceConfiguration:
             indicate a single-reference system (no multireference character).
             Useful for systems where the initial DMRG gives low entropies but an
             active space is still desired.
+        """
+        self.skip_localization: bool = False
+        """
+        bool
+            If true, skip orbital localization entirely. Useful for debugging or when
+            localization causes issues (e.g., NaN orbital coefficients with certain
+            localization methods for heavy elements).
         """
 
     def write_yaml_file(self, file_name: str = "consistent_cas.configuration.yaml") -> str:
@@ -211,6 +219,8 @@ class ConsistentActiveSpaceConfiguration:
         config.localization_method = options.localization_method
         # Handle force_cas option
         config.force_cas = options.force_cas
+        # Handle skip_localization option
+        config.skip_localization = options.skip_localization
         ConsistentActiveSpaceConfiguration.input_sanity_checks(config)
         config.base_load_path = os.path.join(*config.xyz_files[0].split("/")[:-1])  # type: ignore
         return config
@@ -264,7 +274,7 @@ class ConsistentActiveSpaceConfiguration:
                 "work_dir": "serenity/",
                 "basis_set": self.basis_set,
                 "score_start": 1.0,
-                "skip_localization": False,
+                "skip_localization": self.skip_localization,
                 "system_names": self.system_names,
                 "molcas_orbital_files": [FileHandler.get_project_path() + "/initial/" for _ in self.system_names]
             }

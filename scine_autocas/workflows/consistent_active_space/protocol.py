@@ -53,6 +53,9 @@ def run_from_command_line() -> None:
     parser.add_option("-f", "--force-cas", dest="force_cas", action="store_true", default=False,
                       help="Force active space selection even when single-orbital entropies indicate a "
                            "single-reference system. Useful for systems with low initial entropies.")
+    parser.add_option("-S", "--skip-localization", dest="skip_localization", action="store_true", default=False,
+                      help="Skip orbital localization entirely. Use canonical orbitals directly. "
+                           "Useful when localization causes issues (e.g., NaN coefficients).")
     parser.add_option("-y", "--yaml", dest="yaml_file", default="", type="str",
                       help="The configuration yaml file to use. If given, xyz files/loading paths must not be set"
                            " and all other options provided through the command line are ignored.")
