@@ -50,6 +50,9 @@ def run_from_command_line() -> None:
     parser.add_option("-L", "--localization", dest="localization_method", default="IBO", type="str",
                       help="Orbital localization method. Options: IBO (default), PIPEK_MEZEY, BOYS, "
                            "EDMINSTON_RUEDENBERG. Use PIPEK_MEZEY or BOYS for heavy elements where IBO fails.")
+    parser.add_option("-f", "--force-cas", dest="force_cas", action="store_true", default=False,
+                      help="Force active space selection even when single-orbital entropies indicate a "
+                           "single-reference system. Useful for systems with low initial entropies.")
     parser.add_option("-y", "--yaml", dest="yaml_file", default="", type="str",
                       help="The configuration yaml file to use. If given, xyz files/loading paths must not be set"
                            " and all other options provided through the command line are ignored.")
@@ -152,7 +155,8 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
         name = names[i]
         # reset the interface
         molcas.set_initial_cas_state(False)
-        cas_occup, cas_idx = run_autocas(molecule, molcas, name, configuration.large_active_space)
+        cas_occup, cas_idx = run_autocas(molecule, molcas, name, configuration.large_active_space,
+                                          configuration.force_cas)
         cas_occupations[i] = cas_occup  # type: ignore
         cas_indices[i] = cas_idx
 

@@ -28,7 +28,8 @@ class ConsistentActiveSpaceConfiguration:
         "project_name",
         "use_external_orbitals",
         "external_orbital_files",
-        "localization_method"
+        "localization_method",
+        "force_cas"
     )
 
     def __init__(self):
@@ -109,6 +110,14 @@ class ConsistentActiveSpaceConfiguration:
             - "PIPEK_MEZEY": Pipek-Mezey localization
             - "BOYS": Foster-Boys localization
             - "EDMINSTON_RUEDENBERG": Edmiston-Ruedenberg localization
+        """
+        self.force_cas: bool = False
+        """
+        bool
+            If true, force active space selection even when single-orbital entropies
+            indicate a single-reference system (no multireference character).
+            Useful for systems where the initial DMRG gives low entropies but an
+            active space is still desired.
         """
 
     def write_yaml_file(self, file_name: str = "consistent_cas.configuration.yaml") -> str:
@@ -200,6 +209,8 @@ class ConsistentActiveSpaceConfiguration:
                                               for p in options.external_orbital_files.split(",")]
         # Handle localization method option
         config.localization_method = options.localization_method
+        # Handle force_cas option
+        config.force_cas = options.force_cas
         ConsistentActiveSpaceConfiguration.input_sanity_checks(config)
         config.base_load_path = os.path.join(*config.xyz_files[0].split("/")[:-1])  # type: ignore
         return config

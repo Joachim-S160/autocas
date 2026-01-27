@@ -11,7 +11,8 @@ from scine_autocas.plots import EntanglementPlot, ThresholdPlot
 
 
 def run_small_active_space(autocas: Autocas, molcas: Molcas, name: str,
-                           occ_initial: List[int], index_initial: List[int])\
+                           occ_initial: List[int], index_initial: List[int],
+                           force_cas: bool = False)\
         -> Tuple[List[int], List[int]]:
     """
     Run autoCAS with the small active space protocol.
@@ -28,6 +29,8 @@ def run_small_active_space(autocas: Autocas, molcas: Molcas, name: str,
         The initial occupations of the active space.
     index_initial: List[int]
         The initial orbital indices of the active space.
+    force_cas: bool
+        If True, force active space selection even when entropies indicate single-reference.
 
     Returns
     -------
@@ -48,12 +51,14 @@ def run_small_active_space(autocas: Autocas, molcas: Molcas, name: str,
         pyplot.savefig("threshold" + name + ".pdf")  # type: ignore
     # make active space based on single orbital entropies
     cas_occ, cas_index = autocas.get_active_space(
-        s1_entropy   # type: ignore
+        s1_entropy,  # type: ignore
+        force_cas=force_cas
     )
     return cas_occ, cas_index
 
 
-def run_large_active_space(autocas: Autocas, molcas: Molcas, name: str) -> Tuple[List[int], List[int]]:
+def run_large_active_space(autocas: Autocas, molcas: Molcas, name: str,
+                           force_cas: bool = False) -> Tuple[List[int], List[int]]:
     """
     Run autoCAS with the large active space protocol.
 
@@ -65,6 +70,8 @@ def run_large_active_space(autocas: Autocas, molcas: Molcas, name: str) -> Tuple
         The molcas interface.
     name: str
         The system name.
+    force_cas: bool
+        If True, force active space selection even when entropies indicate single-reference.
 
     Returns
     -------
@@ -114,13 +121,14 @@ def run_large_active_space(autocas: Autocas, molcas: Molcas, name: str) -> Tuple
         partial_s1_list,  # type: ignore
         partial_s2_list,  # type: ignore
         partial_mut_inf_list,  # type: ignore
-        force_cas=False
+        force_cas=force_cas
     )
 
     return cas_occ, cas_index
 
 
-def run_autocas(molecule: Molecule, molcas: Molcas, name: str, large_active_space: bool) -> Tuple[List[int], List[int]]:
+def run_autocas(molecule: Molecule, molcas: Molcas, name: str, large_active_space: bool,
+                force_cas: bool = False) -> Tuple[List[int], List[int]]:
     """
     Run the autoCAS workflow.
 
@@ -135,6 +143,8 @@ def run_autocas(molecule: Molecule, molcas: Molcas, name: str, large_active_spac
     large_active_space: bool
         Flag indicating whether to use the large active space protocol. The large active space protocol is only used for
         large valence spaces.
+    force_cas: bool
+        If True, force active space selection even when entropies indicate single-reference.
 
     Returns
     -------
@@ -150,5 +160,5 @@ def run_autocas(molecule: Molecule, molcas: Molcas, name: str, large_active_spac
     if large_active_space and len(occ_initial) > autocas.large_spaces.max_orbitals:
         print("Large Active Space Selection")
         autocas.large_spaces.max_orbitals = min(len(occ_initial), autocas.large_spaces.max_orbitals)
-        return run_large_active_space(autocas, molcas, name)
-    return run_small_active_space(autocas, molcas, name, occ_initial, index_initial)
+        return run_large_active_space(autocas, molcas, name, force_cas)
+    return run_small_active_space(autocas, molcas, name, occ_initial, index_initial, force_cas)
