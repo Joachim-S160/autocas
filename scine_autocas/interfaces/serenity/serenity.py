@@ -50,6 +50,7 @@ class Serenity(Interface):
             "optimized_mapping",
             "xyz_files",
             "skip_localization",
+            "rydberg_energy_cutoff",
             "score_start",
             "score_end",
             "system_names",
