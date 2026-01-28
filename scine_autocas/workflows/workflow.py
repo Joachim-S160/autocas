@@ -121,6 +121,49 @@ class Workflow:
             thresh_plt.savefig(threh_diag_path)  # type: ignore
         else:
             print("Disable plotting, since no project folder was set")
+        # IBO distribution plot
+        self._plot_ibo_distribution()
+
+    def _plot_ibo_distribution(self) -> None:
+        """Generate IBO orbital distribution plots if using Serenity interface."""
+        if not hasattr(self.interface, 'systems') or not self.interface.systems:
+            return
+        if not FileHandler.check_project_dir_exists():
+            return
+
+        import subprocess
+        import sys
+        import shutil
+        from pathlib import Path
+
+        sys_zero = self.interface.systems[0]
+        sys_name = sys_zero.getSystemName()
+        sys_path = sys_zero.getSettings().path
+        h5file = Path(sys_path) / sys_name / f"{sys_name}.scf.h5"
+
+        if not h5file.exists():
+            return
+
+        script_path = Path(__file__).parent.parent.parent.parent / "scripts" / "IBO_distr.py"
+        if not script_path.exists():
+            return
+
+        print("Plotting IBO orbital distribution")
+        try:
+            subprocess.run(
+                [sys.executable, str(script_path), str(h5file)],
+                cwd=str(h5file.parent), check=False, capture_output=True
+            )
+            project_path = FileHandler.get_project_path()
+            for png in h5file.parent.glob("*_IBO_distribution*.pdf"):
+                if "proposed" in png.name:
+                    dest = f"{project_path}/{FileHandler.PlotNames.ibo_distribution_proposed_file}"
+                else:
+                    dest = f"{project_path}/{FileHandler.PlotNames.ibo_distribution_file}"
+                shutil.copy2(png, dest)
+                print(f"Plotting in {dest}")
+        except Exception as e:
+            print(f"[WARNING] IBO distribution analysis failed: {e}")
 
     def print_results(self) -> None:
         """Print all results"""

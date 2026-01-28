@@ -172,6 +172,10 @@ class Defaults(NotInstantiatableClass):
         """Name of the entanglement diagram"""
         threshold_file: str = "threshold.pdf"
         """Name of the threshold diagram"""
+        ibo_distribution_file: str = "ibo_distribution.pdf"
+        """Name of the IBO orbital distribution diagram"""
+        ibo_distribution_proposed_file: str = "ibo_distribution_proposed.pdf"
+        """Name of the IBO orbital distribution diagram with proposed energy-based cutoff"""
 
     @dataclass
     class Molecule(NotInstantiatableClass):

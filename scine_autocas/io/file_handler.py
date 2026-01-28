@@ -39,6 +39,10 @@ class FileHandler:
         """Name of the entanglement diagram"""
         threshold_file: str = Defaults.PlotNames.threshold_file
         """Name of the threshold diagram"""
+        ibo_distribution_file: str = Defaults.PlotNames.ibo_distribution_file
+        """Name of the IBO orbital distribution diagram"""
+        ibo_distribution_proposed_file: str = Defaults.PlotNames.ibo_distribution_proposed_file
+        """Name of the IBO orbital distribution diagram with proposed energy-based cutoff"""
 
     current_dir: str = ""
     """Path to current dir"""

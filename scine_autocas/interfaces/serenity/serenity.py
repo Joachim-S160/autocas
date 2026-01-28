@@ -82,6 +82,8 @@ class Serenity(Interface):
             """The list of xyz files"""
             self.skip_localization: bool = False
             """If true, the orbitals are not localized"""
+            self.rydberg_energy_cutoff: float = -1.0
+            """Rydberg energy cutoff in Hartree. -1.0 = auto-detect (0.5 s/p, 1.0 d-block)."""
             self.score_start = 5e-1
             """Start score for the threshold search"""
             self.score_end = 1e-2
@@ -204,6 +206,7 @@ class Serenity(Interface):
         loc_settings.splitValenceAndCore = True
         loc_settings.localizeVirtuals = self.settings.localize_virtuals
         loc_settings.replaceVirtuals = True
+        loc_settings.rydbergEnergyCutoff = self.settings.rydberg_energy_cutoff
         if not self.settings.skip_localization:
             self.localize_orbitals(sys_zero, loc_settings)
 
