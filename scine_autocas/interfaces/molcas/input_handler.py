@@ -10,6 +10,7 @@ See LICENSE.txt for details.
 """
 
 import io
+import os
 # rename class and corresponding file
 from typing import Any, Optional
 
@@ -73,7 +74,8 @@ class InputHandler:
         input_file.write(f"  SPIN    = {settings.get_molecule().spin_multiplicity}\n")
         input_file.write(f"  NACTEL  = {settings.active_electrons}\n")
         if orbital_file:
-            input_file.write(f"  FILEORB = {orbital_file}\n")
+            # Use basename to avoid OpenMolcas FILEORB path length truncation
+            input_file.write(f"  FILEORB = {os.path.basename(orbital_file)}\n")
             if not alter:
                 input_file.write("  TYPEINDEX\n")
             else:
@@ -114,7 +116,8 @@ class InputHandler:
         input_file.write(f"  SPIN    = {settings.get_molecule().spin_multiplicity}\n")
         input_file.write(f"  NACTEL  = {settings.active_electrons}\n")
         if orbital_file:
-            input_file.write(f"  FILEORB = {orbital_file}\n")
+            # Use basename to avoid OpenMolcas FILEORB path length truncation
+            input_file.write(f"  FILEORB = {os.path.basename(orbital_file)}\n")
             if not alter:
                 input_file.write("  TYPEINDEX\n")
             else:
