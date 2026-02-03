@@ -438,7 +438,8 @@ class Molcas(Interface):
         FileHandler.make_final_calc_dir()
         orb_file_name = self.orbital_file.split('/')[-1]
         if not os.path.exists(orb_file_name):
-            new_orb_file = os.getcwd() + f"/{orb_file_name}_sel"
+            # Use relative path to avoid OpenMolcas FILEORB path length truncation
+            new_orb_file = f"{orb_file_name}_sel"
             shutil.copy(self.orbital_file, new_orb_file)
             self.orbital_file = new_orb_file
 
@@ -489,7 +490,8 @@ class Molcas(Interface):
             FileHandler.make_initial_dmrg_dir()
         orb_file_name = self.orbital_file.split('/')[-1]
         if not os.path.exists(orb_file_name):
-            new_orb_file = os.getcwd() + f"/{orb_file_name}_sel"
+            # Use relative path to avoid OpenMolcas FILEORB path length truncation
+            new_orb_file = f"{orb_file_name}_sel"
             shutil.copy(self.orbital_file, new_orb_file)
             self.orbital_file = new_orb_file
 
