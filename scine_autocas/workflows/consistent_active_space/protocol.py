@@ -5,6 +5,9 @@ See LICENSE.txt for details. """
 
 import os
 import shutil
+import subprocess
+import sys
+from pathlib import Path
 from typing import List, Tuple
 from optparse import OptionParser
 from scine_autocas.workflows.consistent_active_space.configuration import ConsistentActiveSpaceConfiguration
@@ -17,6 +20,57 @@ from scine_autocas.workflows.consistent_active_space.prepare_orbitals import (
 from scine_autocas.utils.defaults import Defaults
 from scine_autocas.workflows.consistent_active_space.run_autocas import run_autocas
 from scine_autocas.io import FileHandler
+
+
+def plot_ibo_distribution(serenity: Serenity) -> None:
+    """
+    Generate IBO orbital distribution plots using IAO-constrained classification.
+
+    Shows the proper IAO constraint: nValVirt = nMINAO - nOcc
+
+    Parameters
+    ----------
+    serenity : Serenity
+        The Serenity interface with initialized systems.
+    """
+    if not hasattr(serenity, 'systems') or not serenity.systems:
+        return
+    if not FileHandler.check_project_dir_exists():
+        return
+
+    # Get first system's HDF5 file
+    sys_zero = serenity.systems[0]
+    sys_name = sys_zero.getSystemName()
+    sys_path = sys_zero.getSettings().path
+    h5file = Path(sys_path) / sys_name / f"{sys_name}.scf.h5"
+
+    if not h5file.exists():
+        print(f"[WARNING] HDF5 file not found for IBO plot: {h5file}")
+        return
+
+    # Find IBO_distr_IAO.py script (5 parents up from this file to reach autoCAS4HE)
+    script_path = Path(__file__).parent.parent.parent.parent.parent / "scripts" / "IBO_distr_IAO.py"
+    if not script_path.exists():
+        print(f"[WARNING] IBO distribution script not found: {script_path}")
+        return
+
+    print("Plotting IBO orbital distribution (IAO-constrained)")
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script_path), str(h5file)],
+            cwd=str(h5file.parent), check=False, capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            print(f"[WARNING] IBO plot script error: {result.stderr[:200]}")
+
+        # Copy generated plots to project directory
+        project_path = FileHandler.get_project_path()
+        for pdf in h5file.parent.glob("*_IBO_IAO*.pdf"):
+            dest = f"{project_path}/{FileHandler.PlotNames.ibo_distribution_file}"
+            shutil.copy2(pdf, dest)
+            print(f"  Saved: {dest}")
+    except Exception as e:
+        print(f"[WARNING] IBO distribution analysis failed: {e}")
 
 
 def run_from_command_line() -> None:
@@ -148,6 +202,9 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
     # Write localized orbitals back to Molcas
     print_orbital_map(orbital_map)
     serenity.load_or_write_molcas_orbitals(True)
+
+    # Generate IBO distribution plot (IAO-constrained classification)
+    plot_ibo_distribution(serenity)
 
     cas_occupations: List[List[int]] = [[] for _ in names]
     cas_indices: List[List[int]] = [[] for _ in names]

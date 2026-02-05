@@ -125,7 +125,10 @@ class Workflow:
         self._plot_ibo_distribution()
 
     def _plot_ibo_distribution(self) -> None:
-        """Generate IBO orbital distribution plots if using Serenity interface."""
+        """Generate IBO orbital distribution plots using IAO-constrained classification.
+
+        Shows the proper IAO constraint: nValVirt = nMINAO - nOcc
+        """
         if not hasattr(self.interface, 'systems') or not self.interface.systems:
             return
         if not FileHandler.check_project_dir_exists():
@@ -144,24 +147,29 @@ class Workflow:
         if not h5file.exists():
             return
 
-        script_path = Path(__file__).parent.parent.parent.parent / "scripts" / "IBO_distr.py"
+        # Use the IAO-constrained script
+        script_path = Path(__file__).parent.parent.parent.parent / "scripts" / "IBO_distr_IAO.py"
         if not script_path.exists():
-            return
+            # Fallback to old script if new one not found
+            script_path = Path(__file__).parent.parent.parent.parent / "scripts" / "IBO_distr.py"
+            if not script_path.exists():
+                return
 
-        print("Plotting IBO orbital distribution")
+        print("Plotting IBO orbital distribution (IAO-constrained)")
         try:
             subprocess.run(
                 [sys.executable, str(script_path), str(h5file)],
                 cwd=str(h5file.parent), check=False, capture_output=True
             )
             project_path = FileHandler.get_project_path()
-            for png in h5file.parent.glob("*_IBO_distribution*.pdf"):
-                if "proposed" in png.name:
+            # Look for both new and old format plot names
+            for pdf in h5file.parent.glob("*_IBO*.pdf"):
+                if "proposed" in pdf.name:
                     dest = f"{project_path}/{FileHandler.PlotNames.ibo_distribution_proposed_file}"
                 else:
                     dest = f"{project_path}/{FileHandler.PlotNames.ibo_distribution_file}"
-                shutil.copy2(png, dest)
-                print(f"Plotting in {dest}")
+                shutil.copy2(pdf, dest)
+                print(f"  Saved: {dest}")
         except Exception as e:
             print(f"[WARNING] IBO distribution analysis failed: {e}")
 
