@@ -204,7 +204,10 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
     serenity.load_or_write_molcas_orbitals(True)
 
     # Generate IBO distribution plot (IAO-constrained classification)
-    plot_ibo_distribution(serenity)
+    try:
+        plot_ibo_distribution(serenity)
+    except Exception as e:
+        print(f"[WARNING] IBO distribution plot failed (non-fatal): {e}")
 
     cas_occupations: List[List[int]] = [[] for _ in names]
     cas_indices: List[List[int]] = [[] for _ in names]
