@@ -104,6 +104,7 @@ class Molcas(Interface):
             "orbital_localisation",
             "localisation_space",
             "localisation_method",
+            "rasscf_max_iter",
             # "skip_scf",
         )
 
@@ -144,6 +145,8 @@ class Molcas(Interface):
             self.orbital_localisation = False
             self.localisation_space = "OCCUpied"
             self.localisation_method = "PIPEk-Mezey"
+            self.rasscf_max_iter: int = 500
+            """Max RASSCF macro-iterations (ITERations keyword, 1st value). OpenMolcas default is 200."""
             # self.skip_scf = True
 
             # available method for this interface

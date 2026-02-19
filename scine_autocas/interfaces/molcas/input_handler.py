@@ -88,6 +88,8 @@ class InputHandler:
             input_file.write("  CIONLY\n")
         if settings.ci_root_string != "":
             input_file.write(f"  CIRoot = {settings.ci_root_string}\n")
+        if settings.rasscf_max_iter:
+            input_file.write(f"  ITERations\n    {settings.rasscf_max_iter} 100\n")
 
     def __dmrg(self, settings: Any, input_file: io.IOBase, orbital_file: Optional[str], alter: Optional[str]):
         """Create Molcas input for qcmaquis dmrg calculations.
@@ -130,6 +132,8 @@ class InputHandler:
             input_file.write("  CIONLY\n")
         if settings.ci_root_string != "" and settings.ci_root_string is not None:
             input_file.write(f"  CIRoot = {settings.ci_root_string}\n")
+        if settings.rasscf_max_iter:
+            input_file.write(f"  ITERations\n    {settings.rasscf_max_iter} 100\n")
         if settings.get_molecule().spin_multiplicity > 1:
             pass
         input_file.write("EndOOptimizationSettings\n")
