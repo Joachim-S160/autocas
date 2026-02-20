@@ -105,6 +105,7 @@ class Molcas(Interface):
             "localisation_space",
             "localisation_method",
             "rasscf_max_iter",
+            "rasscf_level_shift",
             # "skip_scf",
         )
 
@@ -145,8 +146,13 @@ class Molcas(Interface):
             self.orbital_localisation = False
             self.localisation_space = "OCCUpied"
             self.localisation_method = "PIPEk-Mezey"
-            self.rasscf_max_iter: int = 500
-            """Max RASSCF macro-iterations (ITERations keyword, 1st value). OpenMolcas default is 200."""
+            self.rasscf_max_iter: int = 200
+            """Max RASSCF macro-iterations (ITERations keyword, 1st value).
+            OpenMolcas pre-built module caps this at 200 (mxIter in rasdim.fh)."""
+            self.rasscf_level_shift: float = 0.5
+            """Level shift (Eh) for RASSCF orbital optimization (LEVShift keyword).
+            Helps convergence at stretched geometries where the active-space orbital
+            Hessian is near-singular. 0.0 disables it. Does not affect the converged result."""
             # self.skip_scf = True
 
             # available method for this interface

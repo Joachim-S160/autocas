@@ -90,6 +90,8 @@ class InputHandler:
             input_file.write(f"  CIRoot = {settings.ci_root_string}\n")
         if settings.rasscf_max_iter:
             input_file.write(f"ITERations\n{settings.rasscf_max_iter} 100\n")
+        if settings.rasscf_level_shift:
+            input_file.write(f"LEVShift\n{settings.rasscf_level_shift}\n")
 
     def __dmrg(self, settings: Any, input_file: io.IOBase, orbital_file: Optional[str], alter: Optional[str]):
         """Create Molcas input for qcmaquis dmrg calculations.
