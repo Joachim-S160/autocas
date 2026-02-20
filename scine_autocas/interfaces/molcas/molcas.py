@@ -106,6 +106,7 @@ class Molcas(Interface):
             "localisation_method",
             "rasscf_max_iter",
             "rasscf_level_shift",
+            "rasscf_ci_max_iter",
             # "skip_scf",
         )
 
@@ -149,10 +150,14 @@ class Molcas(Interface):
             self.rasscf_max_iter: int = 200
             """Max RASSCF macro-iterations (ITERations keyword, 1st value).
             OpenMolcas pre-built module caps this at 200 (mxIter in rasdim.fh)."""
-            self.rasscf_level_shift: float = 0.5
+            self.rasscf_level_shift: float = 1.5
             """Level shift (Eh) for RASSCF orbital optimization (LEVShift keyword).
             Helps convergence at stretched geometries where the active-space orbital
-            Hessian is near-singular. 0.0 disables it. Does not affect the converged result."""
+            Hessian is near-singular. 0.0 disables it. Does not affect the converged result.
+            Mertens Po2 reproduction used 1.5 Eh."""
+            self.rasscf_ci_max_iter: int = 200
+            """Max Davidson CI iterations per RASSCF macro-step (CIMX keyword).
+            OpenMolcas default is ~32. Mertens used 200 for CAS(12,8) with multiple roots."""
             # self.skip_scf = True
 
             # available method for this interface
