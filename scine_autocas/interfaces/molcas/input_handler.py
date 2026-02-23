@@ -89,7 +89,7 @@ class InputHandler:
         if settings.ci_root_string != "":
             input_file.write(f"  CIRoot = {settings.ci_root_string}\n")
         if settings.rasscf_max_iter:
-            input_file.write(f"ITERations\n{settings.rasscf_max_iter} 50\n")
+            input_file.write(f"ITERations\n{settings.rasscf_max_iter} {settings.rasscf_sx_max_iter}\n")
         if settings.rasscf_level_shift:
             input_file.write(f"LEVShift\n{settings.rasscf_level_shift}\n")
         if settings.rasscf_ci_max_iter:

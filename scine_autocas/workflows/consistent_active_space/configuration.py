@@ -4,7 +4,7 @@ Copyright ETH Zurich, Department of Chemistry and Applied Biosciences, Reiher Gr
 See LICENSE.txt for details. """
 
 import os.path
-from typing import List, Dict
+from typing import List, Dict, Optional
 import yaml
 from scine_autocas.utils.defaults import Defaults
 from scine_autocas.io import FileHandler
@@ -30,7 +30,8 @@ class ConsistentActiveSpaceConfiguration:
         "external_orbital_files",
         "localization_method",
         "force_cas",
-        "skip_localization"
+        "skip_localization",
+        "rasscf_sx_max_iter",
     )
 
     def __init__(self):
@@ -127,6 +128,14 @@ class ConsistentActiveSpaceConfiguration:
             localization causes issues (e.g., NaN orbital coefficients with certain
             localization methods for heavy elements).
         """
+        self.rasscf_sx_max_iter: Optional[int] = None
+        """
+        Optional[int]
+            Override the max SX inner iterations per RASSCF macro-step (ITERations keyword,
+            2nd value). None = use the Molcas.Settings default (currently 100).
+            Set to a higher value (e.g. 150) to test whether more inner iterations help
+            convergence at stretched geometries.
+        """
 
     def write_yaml_file(self, file_name: str = "consistent_cas.configuration.yaml") -> str:
         """
@@ -221,6 +230,8 @@ class ConsistentActiveSpaceConfiguration:
         config.force_cas = options.force_cas
         # Handle skip_localization option
         config.skip_localization = options.skip_localization
+        # Handle rasscf_sx_max_iter override (None = use Molcas.Settings default)
+        config.rasscf_sx_max_iter = options.rasscf_sx_max_iter
         ConsistentActiveSpaceConfiguration.input_sanity_checks(config)
         config.base_load_path = os.path.join(*config.xyz_files[0].split("/")[:-1])  # type: ignore
         return config

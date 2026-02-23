@@ -220,9 +220,9 @@ s in a sub-cas."""
         """Which interface to use."""
         dump: bool = False
         """If interface should write output and all related files."""
-        init_dmrg_bond_dimension: int = 250
+        init_dmrg_bond_dimension: int = 500
         """DMRG bond dimension for the active space selection."""
-        init_dmrg_sweeps: int = 5
+        init_dmrg_sweeps: int = 8
         """DMRG sweeps for the active space selection."""
         dmrg_bond_dimension: int = 3000
         """DMRG bond dimension"""

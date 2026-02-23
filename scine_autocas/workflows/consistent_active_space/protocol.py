@@ -116,6 +116,9 @@ def run_from_command_line() -> None:
     parser.add_option("-n", "--create_no_yaml", dest="create_yaml", default=True, action="store_false",
                       help="If true, the configuration will be written to a yaml file. By default, a yaml"
                            " file is created.")
+    parser.add_option("--rasscf_sx_max_iter", dest="rasscf_sx_max_iter", default=None, type="int",
+                      help="Override max SX inner iterations per RASSCF macro-step (ITERations keyword, 2nd value). "
+                           "Default: use Molcas.Settings default (100). Use e.g. 150 to test higher values.")
     (options, args) = parser.parse_args()
     if options.yaml_file:
         if len(args) > 0:
@@ -161,6 +164,11 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
         orbital_map, unmappable_orbitals = serenity.get_orbital_map()
     # Generate the Molcas orbital files.
     interfaces, molecules = construct_molecules(configuration)
+
+    # Apply CLI overrides to molcas settings
+    if configuration.rasscf_sx_max_iter is not None:
+        for molcas in interfaces:
+            molcas.settings.rasscf_sx_max_iter = configuration.rasscf_sx_max_iter
 
     # If the orbitals are loaded from existing files, Serenity will be initialized.
     # Otherwise, we run the SCF calculation with Serenity.

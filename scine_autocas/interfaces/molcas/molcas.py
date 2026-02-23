@@ -107,6 +107,7 @@ class Molcas(Interface):
             "rasscf_max_iter",
             "rasscf_level_shift",
             "rasscf_ci_max_iter",
+            "rasscf_sx_max_iter",
             # "skip_scf",
         )
 
@@ -150,14 +151,19 @@ class Molcas(Interface):
             self.rasscf_max_iter: int = 200
             """Max RASSCF macro-iterations (ITERations keyword, 1st value).
             OpenMolcas pre-built module caps this at 200 (mxIter in rasdim.fh)."""
-            self.rasscf_level_shift: float = 1.5
+            self.rasscf_level_shift: float = 0.5
             """Level shift (Eh) for RASSCF orbital optimization (LEVShift keyword).
-            Helps convergence at stretched geometries where the active-space orbital
-            Hessian is near-singular. 0.0 disables it. Does not affect the converged result.
-            Mertens Po2 reproduction used 1.5 Eh."""
+            OpenMolcas default and documented best value when Quasi-Newton is active.
+            Step size ∝ 1/(ε_gap + LEVShift); 0.5 gives ~3× larger orbital rotations
+            than 1.5 Eh, resolving monotone slow-convergence at stretched geometries.
+            (1.5 Eh was the Mertens value — confirmed over-damped; reverted 2026-02-23.)"""
             self.rasscf_ci_max_iter: int = 200
             """Max Davidson CI iterations per RASSCF macro-step (CIMX keyword).
             OpenMolcas default is ~32. Mertens used 200 for CAS(12,8) with multiple roots."""
+            self.rasscf_sx_max_iter: int = 100
+            """Max Super-CI (SX) inner iterations per RASSCF macro-step (ITERations keyword, 2nd value).
+            Pre-Mertens autoCAS default. 50 was used in the Mertens settings but was a regression;
+            100 is the correct value when paired with LEVShift=0.5."""
             # self.skip_scf = True
 
             # available method for this interface
