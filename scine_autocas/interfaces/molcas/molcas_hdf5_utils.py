@@ -127,17 +127,6 @@ class MolcasHdf5Utils:
                 type_indices[i] = "2"
 
         hdf5_type_indices[...] = type_indices
-
-        # Equalize MO_OCCUPATIONS to NACTEL/n_active for active orbitals.
-        # This prevents D*(2-D)=0 singularity in CHO_CAS_DRV when active MOs
-        # have integer occupations (e.g. ionic dissociation limit, R>>Re).
-        nactel = sum(self.occupations[i] for i in cas_orbitals)
-        avg_occ = nactel / len(cas_orbitals)
-        mo_occup = np.array(h5_file["MO_OCCUPATIONS"])
-        for i in cas_orbitals:
-            mo_occup[i] = avg_occ
-        h5_file["MO_OCCUPATIONS"][...] = mo_occup
-
         h5_file.close()
 
     def read_hdf5(self, hdf5_file: str):
