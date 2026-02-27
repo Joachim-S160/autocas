@@ -119,6 +119,10 @@ def run_from_command_line() -> None:
     parser.add_option("--rasscf_sx_max_iter", dest="rasscf_sx_max_iter", default=None, type="int",
                       help="Override max SX inner iterations per RASSCF macro-step (ITERations keyword, 2nd value). "
                            "Default: use Molcas.Settings default (100). Use e.g. 150 to test higher values.")
+    parser.add_option("-M", "--multiplicity", dest="spin_multiplicity", default=1, type="int",
+                      help="Spin multiplicity (2S+1) of the molecule. Default: 1 (singlet). "
+                           "Use 3 for triplet, appropriate for heavy diatomics at the dissociation "
+                           "limit (e.g. PbO, Pb2, Po2 with Pb/Po in 3P ground state).")
     (options, args) = parser.parse_args()
     if options.yaml_file:
         if len(args) > 0:

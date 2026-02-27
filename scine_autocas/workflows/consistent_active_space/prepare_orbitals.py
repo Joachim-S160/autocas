@@ -10,7 +10,7 @@ from scine_autocas.interfaces import Molcas, Serenity
 from scine_autocas.utils.defaults import Defaults
 
 
-def setup_molcas_and_molecule(xyz_file: str, name: str, basis_set: str) -> Tuple[Molcas, Molecule]:
+def setup_molcas_and_molecule(xyz_file: str, name: str, basis_set: str, spin_multiplicity: int = 1) -> Tuple[Molcas, Molecule]:
     """
     Setup Molcas interface and molecule from an XYZ file.
 
@@ -29,7 +29,7 @@ def setup_molcas_and_molecule(xyz_file: str, name: str, basis_set: str) -> Tuple
         The Molcas interface and the Molecule object.
     """
     # create a molecule
-    molecule = Molecule(xyz_file)
+    molecule = Molecule(xyz_file, spin_multiplicity=spin_multiplicity)
     # initialize autoCAS and Molcas interface
     molcas = Molcas(molecule)
     # setup interface
@@ -82,7 +82,7 @@ def construct_molecules(configuration: ConsistentActiveSpaceConfiguration) -> Tu
     interfaces = []
     molecules = []
     for xyz, name in zip(configuration.xyz_files, configuration.system_names):
-        molcas, molecule = setup_molcas_and_molecule(xyz, name, configuration.basis_set)
+        molcas, molecule = setup_molcas_and_molecule(xyz, name, configuration.basis_set, configuration.spin_multiplicity)
         molecules.append(molecule)
         interfaces.append(molcas)
     return interfaces, molecules

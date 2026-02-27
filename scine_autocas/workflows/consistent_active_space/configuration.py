@@ -32,6 +32,7 @@ class ConsistentActiveSpaceConfiguration:
         "force_cas",
         "skip_localization",
         "rasscf_sx_max_iter",
+        "spin_multiplicity",
     )
 
     def __init__(self):
@@ -136,6 +137,13 @@ class ConsistentActiveSpaceConfiguration:
             Set to a higher value (e.g. 150) to test whether more inner iterations help
             convergence at stretched geometries.
         """
+        self.spin_multiplicity: int = 1
+        """
+        int
+            The spin multiplicity (2S+1) of the molecule. Default is 1 (singlet).
+            Use 3 for triplet, which is the ground state dissociation limit for
+            heavy diatomics like PbO, Pb2, Po2 (Pb/Po both have 3P ground state).
+        """
 
     def write_yaml_file(self, file_name: str = "consistent_cas.configuration.yaml") -> str:
         """
@@ -232,6 +240,8 @@ class ConsistentActiveSpaceConfiguration:
         config.skip_localization = options.skip_localization
         # Handle rasscf_sx_max_iter override (None = use Molcas.Settings default)
         config.rasscf_sx_max_iter = options.rasscf_sx_max_iter
+        # Handle spin multiplicity
+        config.spin_multiplicity = options.spin_multiplicity
         ConsistentActiveSpaceConfiguration.input_sanity_checks(config)
         config.base_load_path = os.path.join(*config.xyz_files[0].split("/")[:-1])  # type: ignore
         return config
