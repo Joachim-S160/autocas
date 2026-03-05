@@ -123,6 +123,10 @@ def run_from_command_line() -> None:
                       help="Spin multiplicity (2S+1) of the molecule. Default: 1 (singlet). "
                            "Use 3 for triplet, appropriate for heavy diatomics at the dissociation "
                            "limit (e.g. PbO, Pb2, Po2 with Pb/Po in 3P ground state).")
+    parser.add_option("--ibo-minao-basis", dest="ibo_minao_basis", default="MINAO", type="string",
+                      help="Minimal basis for IAO/IBO construction. Default: MINAO. "
+                           "Use MINAO1/MINAO2/MINAO3 for open-shell systems where nOcc_alpha > nMINAO/2 "
+                           "(e.g. triplet PbO: use MINAO1 for 5 virtual valence slots instead of 2).")
     (options, args) = parser.parse_args()
     if options.yaml_file:
         if len(args) > 0:
