@@ -252,7 +252,9 @@ class Serenity(Interface):
             raise ValueError("Fewer loading paths for molcas orbitals than systems.")
         for i_sys, sys in enumerate(self.systems):
             loading_path = self.settings.molcas_orbital_files[i_sys]
-            if self.settings.uhf:
+            # Reading: always use restricted reader — initial/external files come from RHF/ROHF.
+            # Writing: use unrestricted task when uhf=True to write back IBO-localized UHF orbitals.
+            if self.settings.uhf and write:
                 read = spy.OrbitalsIOTask_U(sys)
             else:
                 read = spy.OrbitalsIOTask_R(sys)
