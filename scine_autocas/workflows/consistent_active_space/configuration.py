@@ -298,7 +298,7 @@ class ConsistentActiveSpaceConfiguration:
                   "(only supported for IBO/IAO)")
         settings = {
             "Interface": {
-                "uhf": False,
+                "uhf": self.spin_multiplicity != 1,
                 "localisation_method": self.localization_method,
                 "alignment": True,
                 "localize_virtuals": localize_virtuals,
