@@ -32,6 +32,8 @@ class ConsistentActiveSpaceConfiguration:
         "force_cas",
         "skip_localization",
         "rasscf_sx_max_iter",
+        "rasscf_level_shift",
+        "restart_from_dmrg",
         "spin_multiplicity",
         "ibo_minao_basis",
     )
@@ -137,6 +139,22 @@ class ConsistentActiveSpaceConfiguration:
             2nd value). None = use the Molcas.Settings default (currently 100).
             Set to a higher value (e.g. 150) to test whether more inner iterations help
             convergence at stretched geometries.
+        """
+        self.rasscf_level_shift: Optional[float] = None
+        """
+        Optional[float]
+            Override the RASSCF LEVShift (Eh). None = use Molcas.Settings default (0.5 Eh).
+            OpenMolcas undamped default is 0.3 Eh. Use 0.1 when DMRG orbitals are already
+            a good starting point and 0.5 causes oscillation (e.g. near ionic/covalent
+            crossing such as PbO at R=7.00 Ang).
+        """
+        self.restart_from_dmrg: bool = False
+        """
+        bool
+            If True, skip orbital preparation, IBO localization, DMRG entropy selection,
+            and CAS combination. Read combined_cas_spaces from the existing dmrg/ directory
+            and run only the final CASSCF. Requires a previous complete run up to DMRG.
+            Use with rasscf_level_shift to change convergence parameters on restart.
         """
         self.spin_multiplicity: int = 1
         """
@@ -249,6 +267,10 @@ class ConsistentActiveSpaceConfiguration:
         config.skip_localization = options.skip_localization
         # Handle rasscf_sx_max_iter override (None = use Molcas.Settings default)
         config.rasscf_sx_max_iter = options.rasscf_sx_max_iter
+        # Handle rasscf_level_shift override (None = use Molcas.Settings default)
+        config.rasscf_level_shift = options.rasscf_level_shift
+        # Handle restart_from_dmrg flag
+        config.restart_from_dmrg = options.restart_from_dmrg
         # Handle spin multiplicity
         config.spin_multiplicity = options.spin_multiplicity
         # Handle IBO MINAO basis variant

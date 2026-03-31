@@ -119,6 +119,16 @@ def run_from_command_line() -> None:
     parser.add_option("--rasscf_sx_max_iter", dest="rasscf_sx_max_iter", default=None, type="int",
                       help="Override max SX inner iterations per RASSCF macro-step (ITERations keyword, 2nd value). "
                            "Default: use Molcas.Settings default (100). Use e.g. 150 to test higher values.")
+    parser.add_option("--rasscf-level-shift", dest="rasscf_level_shift", default=None, type="float",
+                      help="Override RASSCF LEVShift in Eh (LEVShift keyword). "
+                           "Default: use Molcas.Settings default (0.5 Eh). Use 0.1 when DMRG "
+                           "orbitals are already a good starting point to avoid oscillation "
+                           "(e.g. PbO near ionic/covalent crossing at R=7 Ang).")
+    parser.add_option("--restart-from-dmrg", dest="restart_from_dmrg", action="store_true", default=False,
+                      help="Skip orbital prep, IBO, DMRG, and CAS combination. Read combined_cas_spaces "
+                           "from the existing autocas_project/dmrg/ directory and re-run only the final "
+                           "CASSCF. Use with --rasscf-level-shift to fix convergence failures without "
+                           "repeating the expensive DMRG step.")
     parser.add_option("-M", "--multiplicity", dest="spin_multiplicity", default=1, type="int",
                       help="Spin multiplicity (2S+1) of the molecule. Default: 1 (singlet). "
                            "Use 3 for triplet, appropriate for heavy diatomics at the dissociation "
@@ -137,6 +147,37 @@ def run_from_command_line() -> None:
         if options.create_yaml:
             configuration.write_yaml_file()
     run_consistent_active_space_protocol(configuration)
+
+
+def _parse_combined_cas_spaces(path: str) -> Tuple[List[List[int]], List[List[int]]]:
+    """Parse a combined_cas_spaces file and return (occupations, indices).
+
+    Parameters
+    ----------
+    path : str
+        Absolute path to the combined_cas_spaces file.
+
+    Returns
+    -------
+    Tuple[List[List[int]], List[List[int]]]
+        (occupations, indices) — one entry per system in the same order as the file.
+    """
+    import ast
+    occupations: List[List[int]] = []
+    indices: List[List[int]] = []
+    with open(path) as f:
+        lines = [l.strip() for l in f if l.strip()]
+    for line in lines:
+        if line.startswith("combined cas indices:"):
+            indices.append(ast.literal_eval(line.split(":", 1)[1].strip()))
+        elif line.startswith("combined occupation:"):
+            occupations.append(ast.literal_eval(line.split(":", 1)[1].strip()))
+    if len(occupations) != len(indices):
+        raise ValueError(
+            f"Malformed combined_cas_spaces: {len(indices)} index lines, "
+            f"{len(occupations)} occupation lines in {path}."
+        )
+    return occupations, indices
 
 
 def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceConfiguration)\
@@ -177,6 +218,48 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
     if configuration.rasscf_sx_max_iter is not None:
         for molcas in interfaces:
             molcas.settings.rasscf_sx_max_iter = configuration.rasscf_sx_max_iter
+    if configuration.rasscf_level_shift is not None:
+        for molcas in interfaces:
+            molcas.settings.rasscf_level_shift = configuration.rasscf_level_shift
+
+    # Restart from existing DMRG results: skip orbital prep, IBO, DMRG, and CAS combination.
+    if configuration.restart_from_dmrg:
+        dmrg_dir = os.path.join(FileHandler.get_project_path(),
+                                FileHandler.DirectoryNames.initial_dmrg)
+        cas_file = os.path.join(dmrg_dir, "combined_cas_spaces")
+        if not os.path.exists(cas_file):
+            raise FileNotFoundError(
+                f"--restart-from-dmrg: cannot find {cas_file}. "
+                f"Run the full protocol first to generate DMRG results.")
+        print(f"[restart] Reading combined active spaces from {cas_file}")
+        combined_occupations, combined_indices = _parse_combined_cas_spaces(cas_file)
+        n_systems = len(configuration.xyz_files)
+        if len(combined_occupations) != n_systems:
+            raise ValueError(
+                f"--restart-from-dmrg: {len(combined_occupations)} entries in combined_cas_spaces "
+                f"but {n_systems} xyz files given. Check that the same xyz list is provided.")
+        for molcas, name in zip(interfaces, configuration.system_names):
+            sel_file = os.path.join(dmrg_dir, f"{name}.scf.h5_sel")
+            if not os.path.exists(sel_file):
+                raise FileNotFoundError(
+                    f"--restart-from-dmrg: orbital file not found: {sel_file}")
+            molcas.orbital_file = os.path.abspath(sel_file)
+        print("*******************************************************************************************")
+        print("*                                                                                         *")
+        print("*                    Final Calculations (restarted from DMRG)                            *")
+        print("*                                                                                         *")
+        print("*******************************************************************************************")
+        energies: List[float] = []
+        for molcas, cas_occ, cas_index in zip(interfaces, combined_occupations, combined_indices):
+            _, _, energy = run_final_calculation(molcas, cas_occ, cas_index, configuration.cas_method)
+            energies.append(energy)
+        os.chdir(FileHandler.get_project_path())
+        f = open("energies.dat", "w")
+        for e in energies:
+            f.write(str(e) + "\n")
+        f.close()
+        FileHandler.DirectoryNames.project_name = initial_project_name
+        return combined_occupations, combined_indices, energies
 
     # If the orbitals are loaded from existing files, Serenity will be initialized.
     # Otherwise, we run the SCF calculation with Serenity.
