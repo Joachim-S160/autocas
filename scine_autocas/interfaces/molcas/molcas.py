@@ -151,12 +151,16 @@ class Molcas(Interface):
             self.rasscf_max_iter: int = 200
             """Max RASSCF macro-iterations (ITERations keyword, 1st value).
             OpenMolcas pre-built module caps this at 200 (mxIter in rasdim.fh)."""
-            self.rasscf_level_shift: float = 0.5
+            self.rasscf_level_shift: float = 0.5 if molecule.spin_multiplicity == 1 else 0.3
             """Level shift (Eh) for RASSCF orbital optimization (LEVShift keyword).
-            OpenMolcas default and documented best value when Quasi-Newton is active.
-            Step size ∝ 1/(ε_gap + LEVShift); 0.5 gives ~3× larger orbital rotations
-            than 1.5 Eh, resolving monotone slow-convergence at stretched geometries.
-            (1.5 Eh was the Mertens value — confirmed over-damped; reverted 2026-02-23.)"""
+            0.5 Eh (singlets): OpenMolcas default, documented best value when Quasi-Newton
+            is active. Step size ∝ 1/(ε_gap + LEVShift); 0.5 resolves monotone
+            slow-convergence at stretched geometries.
+            0.3 Eh (open-shell): IBO-localized ROHF orbitals are already a good starting
+            guess; 0.5 Eh overshoots near ionic/covalent crossings and SOMOs, causing
+            BirthCertificate cycling. 0.3 Eh is the empirical best default from the
+            levshift scan across TeO and PbO triplet dissociation curves (2026-03-31).
+            Override with --rasscf-level-shift or configuration.rasscf_level_shift."""
             self.rasscf_ci_max_iter: int = 200
             """Max Davidson CI iterations per RASSCF macro-step (CIMX keyword).
             OpenMolcas default is ~32. Mertens used 200 for CAS(12,8) with multiple roots."""
