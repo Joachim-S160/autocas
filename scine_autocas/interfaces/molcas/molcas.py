@@ -331,36 +331,68 @@ class Molcas(Interface):
     def run_molcas(self):
         """Run molcas, from current state.
 
-        The function calls the molcas binary through a subprocess
+        The function calls the molcas binary through a subprocess.  If CASSCF
+        fails to converge (_RC_NOT_CONVERGED_ or BirthCertificate cycling), a
+        sweep of alternative LEVShift values is tried before giving up.  Each
+        retry starts from the same input orbital file so that a cycling state
+        from the previous attempt is never inherited.
         """
-        # write input
         input_file = self.project_name + ".input"
+        molcas_internal_log_file = self.project_name + ".log"
 
-        self.input_handler.write_input(self.settings, input_file, self.orbital_file)
-        # setup environment
         self.environment.project_name = self.project_name
         environment = self.environment.make_environment()
-        # save current location
         pymolcas_string = self.environment.molcas_binary + " " + self.environment.molcas_flags
         print(self.environment.molcas_binary, self.environment.molcas_flags)
         print(self.environment)
-        log_file = open("molcas.out", "w+")
 
-        calculation_process = subprocess.Popen(
-            [
-                f"{pymolcas_string} {input_file} -nt {self.environment.get_nthreads()}"
-            ],
-            env=environment,
-            shell=True,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-        )
-        calculation_process.communicate()
+        def _attempt(level_shift: float) -> bool:
+            """Write input with level_shift, run pymolcas, return True on Happy landing."""
+            self.settings.rasscf_level_shift = level_shift
+            self.input_handler.write_input(self.settings, input_file, self.orbital_file)
+            with open("molcas.out", "w") as log_file:
+                proc = subprocess.Popen(
+                    [f"{pymolcas_string} {input_file} -nt {self.environment.get_nthreads()}"],
+                    env=environment,
+                    shell=True,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                )
+                proc.communicate()
+            with open(molcas_internal_log_file, "r") as f:
+                return "Happy landing!" in f.read()
 
-        molcas_internal_log_file = self.project_name + ".log"
-        success_string = "Happy landing!"
-        with open(molcas_internal_log_file, "r") as molcas_log:
-            success = success_string in molcas_log.read()
+        def _is_convergence_failure() -> bool:
+            """Return True if the last run failed due to CASSCF non-convergence."""
+            try:
+                with open(molcas_internal_log_file, "r") as f:
+                    log_content = f.read()
+                return "_RC_NOT_CONVERGED_" in log_content or "BirthCertificate" in log_content
+            except FileNotFoundError:
+                return False
+
+        original_level_shift = self.settings.rasscf_level_shift
+        success = _attempt(original_level_shift)
+
+        if not success and _is_convergence_failure():
+            # Sweep alternative LEVShift values.  Skip any value equal to the
+            # one that just failed to avoid a pointless duplicate attempt.
+            retry_sequence = [0.5, 0.75, 0.1, 0.0]
+            for ls in retry_sequence:
+                if abs(ls - original_level_shift) < 1e-6:
+                    continue
+                print(
+                    f"[autoCAS] CASSCF did not converge with LEVShift={original_level_shift:.2f}. "
+                    f"Retrying with LEVShift={ls:.2f} ..."
+                )
+                success = _attempt(ls)
+                if success:
+                    print(f"[autoCAS] CASSCF converged with LEVShift={ls:.2f}.")
+                    break
+
+        # Restore original level shift so subsequent calls are unaffected.
+        self.settings.rasscf_level_shift = original_level_shift
+
         if not success:
             full_path = os.path.join(os.getcwd(), molcas_internal_log_file)
             err_file = molcas_internal_log_file.replace(".log", ".err")
