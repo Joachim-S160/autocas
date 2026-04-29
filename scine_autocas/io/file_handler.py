@@ -19,6 +19,8 @@ class FileHandler:
         """Initial dmrg dir name"""
         final_calc: str = Defaults.DirName.final_calc
         """Final calc dir name"""
+        per_geom_calc: str = Defaults.DirName.per_geom_calc
+        """Per-geometry CASSCF dir name (pre-union active space)"""
         project_name: str = Defaults.DirName.project_name
         """Autocas project dir name"""
         dumper_name: str = Defaults.DirName.dumper_name
@@ -161,6 +163,20 @@ class FileHandler:
             os.chdir(FileHandler.get_project_path())
             FileHandler._make_calc_dir(FileHandler.DirectoryNames.final_calc)
             os.chdir(FileHandler.DirectoryNames.final_calc)
+            FileHandler.set_current_dir()
+
+    @staticmethod
+    def make_per_geom_calc_dir():
+        """Create per-geometry CASSCF dir in project root dir.
+
+        Stores the pre-union per-geometry CASSCF results. Function changes to
+        that dir and sets current dir to this location.
+        """
+        if FileHandler.check_project_dir_exists():
+            FileHandler.make_scratch_dir()
+            os.chdir(FileHandler.get_project_path())
+            FileHandler._make_calc_dir(FileHandler.DirectoryNames.per_geom_calc)
+            os.chdir(FileHandler.DirectoryNames.per_geom_calc)
             FileHandler.set_current_dir()
 
     @staticmethod

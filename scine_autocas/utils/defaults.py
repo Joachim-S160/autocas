@@ -153,6 +153,7 @@ class Defaults(NotInstantiatableClass):
         initial_orbs = "initial"
         initial_dmrg = "dmrg"
         final_calc = "final"
+        per_geom_calc = "pergeom"
         project_name = "autocas_project"
         dumper_name = "autocas_dump"
         scratch = "scratch"

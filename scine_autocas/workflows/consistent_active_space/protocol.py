@@ -137,6 +137,10 @@ def run_from_command_line() -> None:
                       help="Minimal basis for IAO/IBO construction. Default: MINAO. "
                            "Use MINAO1/MINAO2/MINAO3 for open-shell systems where nOcc_alpha > nMINAO/2 "
                            "(e.g. triplet PbO: use MINAO1 for 5 virtual valence slots instead of 2).")
+    parser.add_option("--save-per-geom-casscf", dest="save_per_geom_casscf", action="store_true", default=False,
+                      help="After per-geometry DMRG selection, run a CASSCF with each geometry's own "
+                           "entropy-selected CAS and save rasscf.h5 to pergeom/. "
+                           "Allows Pegamoid inspection before the union CAS is applied.")
     (options, args) = parser.parse_args()
     if options.yaml_file:
         if len(args) > 0:
@@ -296,9 +300,6 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
             serenity.calculate()
         orbital_map, unmappable_orbitals = serenity.get_orbital_map()
     names = serenity.settings.system_names
-    # Write canonical orbitals back to Molcas
-    serenity.load_or_write_molcas_orbitals(True)
-    # Write localized orbitals back to Molcas
     print_orbital_map(orbital_map)
     serenity.load_or_write_molcas_orbitals(True)
 
@@ -321,6 +322,32 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
                                           configuration.force_cas)
         cas_occupations[i] = cas_occup  # type: ignore
         cas_indices[i] = cas_idx
+
+    # Log per-geometry CAS selections before combining (for inspection/debugging)
+    per_geom_log = open("per_geometry_cas_spaces", "w")
+    for cas_idx, cas_occ, nm in zip(cas_indices, cas_occupations, names):
+        n_e = sum(cas_occ) if cas_occ else 0
+        per_geom_log.write(f"system {nm}: CAS({n_e},{len(cas_idx)}) indices: {cas_idx}\n")
+        per_geom_log.write(f"system {nm}: occupation: {cas_occ}\n")
+        print(f"  per-geom CAS {nm}: CAS({n_e},{len(cas_idx)})")
+    per_geom_log.close()
+
+    if configuration.save_per_geom_casscf:
+        print("*** Running per-geometry CASSCF (pre-union) ***")
+        prev_dir = os.getcwd()
+        orig_final_name = FileHandler.DirectoryNames.final_calc
+        orig_orbital_files = [m.orbital_file for m in interfaces]
+        FileHandler.DirectoryNames.final_calc = FileHandler.DirectoryNames.per_geom_calc
+        try:
+            for molcas_iface, cas_occ, cas_idx in zip(interfaces, cas_occupations, cas_indices):
+                if not cas_occ:
+                    continue
+                run_final_calculation(molcas_iface, cas_occ, cas_idx, configuration.cas_method)
+        finally:
+            FileHandler.DirectoryNames.final_calc = orig_final_name
+            for molcas_iface, orig_orb in zip(interfaces, orig_orbital_files):
+                molcas_iface.orbital_file = orig_orb
+            os.chdir(prev_dir)
 
     print("*******************************************************************************************")
     print("*                                                                                         *")
