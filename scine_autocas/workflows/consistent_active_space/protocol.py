@@ -3,10 +3,12 @@ __copyright__ = """This code is licensed under the 3-clause BSD license.
 Copyright ETH Zurich, Department of Chemistry and Applied Biosciences, Reiher Group.
 See LICENSE.txt for details. """
 
+import multiprocessing as mp
 import os
 import shutil
 import subprocess
 import sys
+import traceback
 from pathlib import Path
 from typing import List, Tuple
 from optparse import OptionParser
@@ -71,6 +73,55 @@ def plot_ibo_distribution(serenity: Serenity) -> None:
             print(f"  Saved: {dest}")
     except Exception as e:
         print(f"[WARNING] IBO distribution analysis failed: {e}")
+
+
+def _run_parallel(jobs: list, n_workers: int) -> list:
+    """Run zero-arg callables in parallel forked processes (at most n_workers at once).
+
+    Uses fork so complex non-picklable objects (Molcas interfaces, closures) work as-is.
+    Each worker puts (idx, result, traceback_or_None) into a shared queue.
+    Results are returned in input order. Raises RuntimeError if any job fails.
+    """
+    if n_workers <= 1:
+        return [fn() for fn in jobs]
+
+    q: mp.Queue = mp.Queue()
+    sem = mp.Semaphore(n_workers)
+    procs = []
+
+    for i, fn in enumerate(jobs):
+        sem.acquire()
+
+        def _child(idx=i, f=fn):
+            result = tb = None
+            try:
+                result = f()
+            except Exception:
+                tb = traceback.format_exc()
+            q.put((idx, result, tb))
+            sem.release()
+
+        p = mp.Process(target=_child)
+        p.start()
+        procs.append(p)
+
+    # Collect exactly len(jobs) results; blocks until each worker puts its item.
+    raw: dict = {}
+    errors: list = []
+    for _ in range(len(jobs)):
+        idx, result, tb = q.get()
+        if tb is not None:
+            errors.append(f"[worker {idx}] {tb}")
+        else:
+            raw[idx] = result
+
+    for p in procs:
+        p.join()
+
+    if errors:
+        raise RuntimeError("Parallel workers failed:\n" + "\n".join(errors))
+
+    return [raw[i] for i in range(len(jobs))]
 
 
 def run_from_command_line() -> None:
@@ -141,6 +192,11 @@ def run_from_command_line() -> None:
                       help="After per-geometry DMRG selection, run a CASSCF with each geometry's own "
                            "entropy-selected CAS and save rasscf.h5 to pergeom/. "
                            "Allows Pegamoid inspection before the union CAS is applied.")
+    parser.add_option("--n-workers", dest="n_workers", default=1, type="int",
+                      help="Number of parallel worker processes for per-geometry loops (DMRG entropy, "
+                           "per-geom CASSCF, final CASSCF). Default: 1 (serial). "
+                           "Uses forked subprocesses — safe for os.chdir()-heavy code. "
+                           "Set to the number of available CPU cores for maximum throughput.")
     (options, args) = parser.parse_args()
     if options.yaml_file:
         if len(args) > 0:
@@ -253,10 +309,21 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
         print("*                    Final Calculations (restarted from DMRG)                            *")
         print("*                                                                                         *")
         print("*******************************************************************************************")
+        def _make_restart_job(iface, cas_occ, cas_idx, method):
+            def job():
+                _, _, energy = run_final_calculation(iface, cas_occ, cas_idx, method)
+                return energy, iface.orbital_file
+            return job
+
+        restart_jobs = [
+            _make_restart_job(iface, cas_occ, cas_idx, configuration.cas_method)
+            for iface, cas_occ, cas_idx in zip(interfaces, combined_occupations, combined_indices)
+        ]
+        restart_results = _run_parallel(restart_jobs, configuration.n_workers)
         energies: List[float] = []
-        for molcas, cas_occ, cas_index in zip(interfaces, combined_occupations, combined_indices):
-            _, _, energy = run_final_calculation(molcas, cas_occ, cas_index, configuration.cas_method)
+        for i, (energy, orb_file) in enumerate(restart_results):
             energies.append(energy)
+            interfaces[i].orbital_file = orb_file
         os.chdir(FileHandler.get_project_path())
         f = open("energies.dat", "w")
         for e in energies:
@@ -311,17 +378,28 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
 
     cas_occupations: List[List[int]] = [[] for _ in names]
     cas_indices: List[List[int]] = [[] for _ in names]
-    # Run autoCAS
-    for i in configuration.autocas_indices:
-        molecule = molecules[i]
-        molcas = interfaces[i]
-        name = names[i]
-        # reset the interface
-        molcas.set_initial_cas_state(False)
-        cas_occup, cas_idx = run_autocas(molecule, molcas, name, configuration.large_active_space,
-                                          configuration.force_cas)
-        cas_occupations[i] = cas_occup  # type: ignore
+
+    # Run autoCAS (DMRG entropy) — parallel over geometries
+    print(f"Running DMRG entropy for {len(configuration.autocas_indices)} geometries "
+          f"({configuration.n_workers} worker(s))")
+
+    def _make_dmrg_job(mol, iface, nm, large_cas, force):
+        def job():
+            iface.set_initial_cas_state(False)
+            cas_occ, cas_idx = run_autocas(mol, iface, nm, large_cas, force)
+            return cas_occ, cas_idx, iface.orbital_file
+        return job
+
+    dmrg_jobs = [
+        _make_dmrg_job(molecules[i], interfaces[i], names[i],
+                       configuration.large_active_space, configuration.force_cas)
+        for i in configuration.autocas_indices
+    ]
+    dmrg_results = _run_parallel(dmrg_jobs, configuration.n_workers)
+    for i, (cas_occ, cas_idx, orb_file) in zip(configuration.autocas_indices, dmrg_results):
+        cas_occupations[i] = cas_occ  # type: ignore
         cas_indices[i] = cas_idx
+        interfaces[i].orbital_file = orb_file  # sync mutation from forked worker
 
     # Log per-geometry CAS selections before combining (for inspection/debugging)
     per_geom_log = open("per_geometry_cas_spaces", "w")
@@ -333,16 +411,27 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
     per_geom_log.close()
 
     if configuration.save_per_geom_casscf:
-        print("*** Running per-geometry CASSCF (pre-union) ***")
+        print(f"*** Running per-geometry CASSCF (pre-union), {configuration.n_workers} worker(s) ***")
         prev_dir = os.getcwd()
         orig_final_name = FileHandler.DirectoryNames.final_calc
         orig_orbital_files = [m.orbital_file for m in interfaces]
         FileHandler.DirectoryNames.final_calc = FileHandler.DirectoryNames.per_geom_calc
         try:
-            for molcas_iface, cas_occ, cas_idx in zip(interfaces, cas_occupations, cas_indices):
-                if not cas_occ:
-                    continue
-                run_final_calculation(molcas_iface, cas_occ, cas_idx, configuration.cas_method)
+            def _make_pergeom_job(iface, cas_occ, cas_idx, method):
+                def job():
+                    run_final_calculation(iface, cas_occ, cas_idx, method)
+                    return iface.orbital_file
+                return job
+
+            pergeom_jobs = [
+                _make_pergeom_job(iface, cas_occ, cas_idx, configuration.cas_method)
+                for iface, cas_occ, cas_idx in zip(interfaces, cas_occupations, cas_indices)
+                if cas_occ
+            ]
+            active_ifaces = [iface for iface, cas_occ in zip(interfaces, cas_occupations) if cas_occ]
+            pergeom_results = _run_parallel(pergeom_jobs, configuration.n_workers)
+            for iface, orb_file in zip(active_ifaces, pergeom_results):
+                iface.orbital_file = orb_file
         finally:
             FileHandler.DirectoryNames.final_calc = orig_final_name
             for molcas_iface, orig_orb in zip(interfaces, orig_orbital_files):
@@ -398,11 +487,23 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
     print("*                                                                                         *")
     print("*******************************************************************************************")
 
+    print(f"Running final CASSCF for {len(interfaces)} geometries ({configuration.n_workers} worker(s))")
+
+    def _make_final_job(iface, cas_occ, cas_idx, method):
+        def job():
+            _, _, energy = run_final_calculation(iface, cas_occ, cas_idx, method)
+            return energy, iface.orbital_file
+        return job
+
+    final_jobs = [
+        _make_final_job(iface, cas_occ, cas_idx, configuration.cas_method)
+        for iface, cas_occ, cas_idx in zip(interfaces, combined_occupations, combined_indices)
+    ]
+    final_results = _run_parallel(final_jobs, configuration.n_workers)
     energies: List[float] = []
-    # Run DMRG-SCF or CAS-PT2
-    for molcas, cas_occ, cas_index in zip(interfaces, combined_occupations, combined_indices):
-        _, _, energy = run_final_calculation(molcas, cas_occ, cas_index, configuration.cas_method)
+    for i, (energy, orb_file) in enumerate(final_results):
         energies.append(energy)
+        interfaces[i].orbital_file = orb_file
 
     f = open("energies.dat", "w")
     for e in energies:

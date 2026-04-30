@@ -37,6 +37,7 @@ class ConsistentActiveSpaceConfiguration:
         "spin_multiplicity",
         "ibo_minao_basis",
         "save_per_geom_casscf",
+        "n_workers",
     )
 
     def __init__(self):
@@ -180,6 +181,13 @@ class ConsistentActiveSpaceConfiguration:
             the existing final/ directory. Allows Pegamoid inspection at both pipeline
             stages: per-geometry CAS and union CAS.
         """
+        self.n_workers: int = 1
+        """
+        int
+            Number of parallel worker processes for the per-geometry loops (DMRG entropy,
+            per-geom CASSCF, final CASSCF). Default 1 = serial. Uses forked subprocesses
+            so each worker has its own CWD and memory — safe for os.chdir()-heavy code.
+        """
 
     def write_yaml_file(self, file_name: str = "consistent_cas.configuration.yaml") -> str:
         """
@@ -286,6 +294,7 @@ class ConsistentActiveSpaceConfiguration:
         config.ibo_minao_basis = options.ibo_minao_basis
         # Handle save_per_geom_casscf flag
         config.save_per_geom_casscf = options.save_per_geom_casscf
+        config.n_workers = options.n_workers
         ConsistentActiveSpaceConfiguration.input_sanity_checks(config)
         config.base_load_path = os.path.join(*config.xyz_files[0].split("/")[:-1])  # type: ignore
         return config
