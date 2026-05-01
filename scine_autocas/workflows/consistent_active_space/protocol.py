@@ -75,6 +75,34 @@ def plot_ibo_distribution(serenity: Serenity) -> None:
         print(f"[WARNING] IBO distribution analysis failed: {e}")
 
 
+def _isolate_worker_scratch(base_scratch: str, worker_scratch: str, project_name: str = "") -> None:
+    """Create worker_scratch and copy pre-computed integral files for this system.
+
+    OpenMolcas creates a transient INPORB symlink (unprefixed) in WorkDir.  If two
+    OpenMolcas processes share the same WorkDir they overwrite each other's INPORB,
+    causing each to read the wrong orbital file.  This helper gives each parallel
+    worker its own WorkDir.
+
+    We copy (not symlink) files that match this system's project_name prefix.
+    Copying avoids HDF5 file-lock conflicts: symlinks to the same inode are locked
+    as a unit, so two processes using symlinks to the same .h5 file both get errno=11.
+    Only files for THIS system are copied; other systems' files stay in base_scratch.
+    Non-prefixed driver files (coord.inp, molcas.control, …) are created fresh by
+    OpenMolcas when it starts — they do not need to be pre-populated.
+    """
+    os.makedirs(worker_scratch, exist_ok=True)
+    if not os.path.isdir(base_scratch):
+        return
+    prefix = project_name + "." if project_name else ""
+    for fname in os.listdir(base_scratch):
+        if prefix and not fname.startswith(prefix):
+            continue
+        src = os.path.join(base_scratch, fname)
+        dst = os.path.join(worker_scratch, fname)
+        if os.path.isfile(src) and not os.path.exists(dst):
+            shutil.copy2(src, dst)
+
+
 def _run_parallel(jobs: list, n_workers: int) -> list:
     """Run zero-arg callables in parallel forked processes (at most n_workers at once).
 
@@ -310,7 +338,11 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
         print("*                                                                                         *")
         print("*******************************************************************************************")
         def _make_restart_job(iface, cas_occ, cas_idx, method):
+            base_scratch = iface.environment.molcas_scratch_dir
             def job():
+                worker_scratch = os.path.join(base_scratch, "restart_" + iface.project_name)
+                _isolate_worker_scratch(base_scratch, worker_scratch, iface.project_name)
+                iface.environment.molcas_scratch_dir = worker_scratch
                 _, _, energy = run_final_calculation(iface, cas_occ, cas_idx, method)
                 return energy, iface.orbital_file
             return job
@@ -379,12 +411,21 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
     cas_occupations: List[List[int]] = [[] for _ in names]
     cas_indices: List[List[int]] = [[] for _ in names]
 
+    # Absolute paths for output text files — avoid CWD-dependency in parallel mode
+    # (parallel workers fork and os.chdir independently; parent CWD may not advance)
+    _dmrg_dir = os.path.join(FileHandler.get_project_path(), FileHandler.DirectoryNames.initial_dmrg)
+    _final_dir = os.path.join(FileHandler.get_project_path(), FileHandler.DirectoryNames.final_calc)
+
     # Run autoCAS (DMRG entropy) — parallel over geometries
     print(f"Running DMRG entropy for {len(configuration.autocas_indices)} geometries "
           f"({configuration.n_workers} worker(s))")
 
     def _make_dmrg_job(mol, iface, nm, large_cas, force):
+        base_scratch = iface.environment.molcas_scratch_dir
         def job():
+            worker_scratch = os.path.join(base_scratch, iface.project_name)
+            _isolate_worker_scratch(base_scratch, worker_scratch, iface.project_name)
+            iface.environment.molcas_scratch_dir = worker_scratch
             iface.set_initial_cas_state(False)
             cas_occ, cas_idx = run_autocas(mol, iface, nm, large_cas, force)
             return cas_occ, cas_idx, iface.orbital_file
@@ -402,7 +443,8 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
         interfaces[i].orbital_file = orb_file  # sync mutation from forked worker
 
     # Log per-geometry CAS selections before combining (for inspection/debugging)
-    per_geom_log = open("per_geometry_cas_spaces", "w")
+    os.makedirs(_dmrg_dir, exist_ok=True)
+    per_geom_log = open(os.path.join(_dmrg_dir, "per_geometry_cas_spaces"), "w")
     for cas_idx, cas_occ, nm in zip(cas_indices, cas_occupations, names):
         n_e = sum(cas_occ) if cas_occ else 0
         per_geom_log.write(f"system {nm}: CAS({n_e},{len(cas_idx)}) indices: {cas_idx}\n")
@@ -418,7 +460,11 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
         FileHandler.DirectoryNames.final_calc = FileHandler.DirectoryNames.per_geom_calc
         try:
             def _make_pergeom_job(iface, cas_occ, cas_idx, method):
+                base_scratch = iface.environment.molcas_scratch_dir
                 def job():
+                    worker_scratch = os.path.join(base_scratch, "pergeom_" + iface.project_name)
+                    _isolate_worker_scratch(base_scratch, worker_scratch, iface.project_name)
+                    iface.environment.molcas_scratch_dir = worker_scratch
                     run_final_calculation(iface, cas_occ, cas_idx, method)
                     return iface.orbital_file
                 return job
@@ -473,7 +519,7 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
                     active_space.remove(i)
                     occupations.remove(occupations[idx])
 
-    combined_file = open("combined_cas_spaces", "w")
+    combined_file = open(os.path.join(_dmrg_dir, "combined_cas_spaces"), "w")
     for cas_index, cas_occ in zip(combined_indices, combined_occupations):
         print(f"combined cas indices: {cas_index}")
         print(f"combined occupation:  {cas_occ}")
@@ -490,7 +536,11 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
     print(f"Running final CASSCF for {len(interfaces)} geometries ({configuration.n_workers} worker(s))")
 
     def _make_final_job(iface, cas_occ, cas_idx, method):
+        base_scratch = iface.environment.molcas_scratch_dir
         def job():
+            worker_scratch = os.path.join(base_scratch, "final_" + iface.project_name)
+            _isolate_worker_scratch(base_scratch, worker_scratch, iface.project_name)
+            iface.environment.molcas_scratch_dir = worker_scratch
             _, _, energy = run_final_calculation(iface, cas_occ, cas_idx, method)
             return energy, iface.orbital_file
         return job
@@ -505,7 +555,8 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
         energies.append(energy)
         interfaces[i].orbital_file = orb_file
 
-    f = open("energies.dat", "w")
+    os.makedirs(_final_dir, exist_ok=True)
+    f = open(os.path.join(_final_dir, "energies.dat"), "w")
     for e in energies:
         f.write(str(e) + "\n")
     f.close()

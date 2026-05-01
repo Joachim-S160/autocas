@@ -350,7 +350,7 @@ class Molcas(Interface):
             """Write input with level_shift, run pymolcas, return True on Happy landing."""
             self.settings.rasscf_level_shift = level_shift
             self.input_handler.write_input(self.settings, input_file, self.orbital_file)
-            with open("molcas.out", "w") as log_file:
+            with open(f"{self.project_name}.out", "w") as log_file:
                 proc = subprocess.Popen(
                     [f"{pymolcas_string} {input_file} -nt {self.environment.get_nthreads()}"],
                     env=environment,
@@ -506,6 +506,7 @@ class Molcas(Interface):
         # make everything safe for symmetry
         if self.settings.point_group != "C1":
             cas_indices = self.reorder_indices_from_symmetry(cas_indices)
+        self.hdf5_utils.read_hdf5(self.orbital_file)
         self.hdf5_utils.modify_hdf5(self.orbital_file, cas_indices)
 
         # start calculation
@@ -559,6 +560,7 @@ class Molcas(Interface):
         # make everything safe for symmetry
         if self.settings.point_group != "C1":
             cas_indices = self.reorder_indices_from_symmetry(cas_indices)
+        self.hdf5_utils.read_hdf5(self.orbital_file)
         self.hdf5_utils.modify_hdf5(self.orbital_file, cas_indices)
 
         # start calculation
