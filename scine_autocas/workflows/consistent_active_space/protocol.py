@@ -204,22 +204,35 @@ def run_from_command_line() -> None:
                            "orbitals are already a good starting point to avoid oscillation "
                            "(e.g. PbO near ionic/covalent crossing at R=7 Ang).")
     parser.add_option("--restart-from-dmrg", dest="restart_from_dmrg", action="store_true", default=False,
-                      help="Skip orbital prep, IBO, DMRG, and CAS combination. Read combined_cas_spaces "
-                           "from the existing autocas_project/dmrg/ directory and re-run only the final "
-                           "CASSCF. Use with --rasscf-level-shift to fix convergence failures without "
-                           "repeating the expensive DMRG step.")
+                      help="[EXPERIMENTAL — DO NOT USE] Skip orbital prep, IBO, DMRG, and CAS combination "
+                           "and re-run only the final CASSCF from existing DMRG output. Known to produce "
+                           "inconsistent results due to undiagnosed MINAO basis mix-up in restart runs "
+                           "(levshift has no discriminating power; crash point matches wrong MINAO tier). "
+                           "See next_steps.md §0.6 DMRG-restart anomaly.")
     parser.add_option("-M", "--multiplicity", dest="spin_multiplicity", default=1, type="int",
                       help="Spin multiplicity (2S+1) of the molecule. Default: 1 (singlet). "
                            "Use 3 for triplet, appropriate for heavy diatomics at the dissociation "
                            "limit (e.g. PbO, Pb2, Po2 with Pb/Po in 3P ground state).")
     parser.add_option("--ibo-minao-basis", dest="ibo_minao_basis", default="MINAO", type="string",
                       help="Minimal basis for IAO/IBO construction. Default: MINAO. "
-                           "Use MINAO1/MINAO2/MINAO3 for open-shell systems where nOcc_alpha > nMINAO/2 "
-                           "(e.g. triplet PbO: use MINAO1 for 5 virtual valence slots instead of 2).")
+                           "MINAO: cc-pVTZ for Z=1-36, ANO-RCC for Z>=37 — sufficient for singlets. "
+                           "MINAO1/2/3: tier-1/2/3 ANO-RCC for ALL Z (including Z=1-36). "
+                           "Use MINAO1 for doublets, MINAO2 for triplets, MINAO3 for quartets. "
+                           "If nMINAO <= nOcc.alpha the workflow will abort; use a larger tier.")
+    parser.add_option("--no-valence-virtuals", dest="allow_zero_valence_virtuals",
+                      action="store_true", default=False,
+                      help="Allow IBO localization to proceed with zero virtual valence orbitals. "
+                           "By default the workflow aborts when nMINAO <= nOcc for any spin channel. "
+                           "Use a larger --ibo-minao-basis instead of this flag unless you have a "
+                           "specific reason to allow an active space with no virtual component.")
     parser.add_option("--save-per-geom-casscf", dest="save_per_geom_casscf", action="store_true", default=False,
                       help="After per-geometry DMRG selection, run a CASSCF with each geometry's own "
                            "entropy-selected CAS and save rasscf.h5 to pergeom/. "
                            "Allows Pegamoid inspection before the union CAS is applied.")
+    parser.add_option("--save-per-geom-dmrgscf", dest="save_per_geom_dmrgscf", action="store_true", default=False,
+                      help="After DMRG entropy step, copy dmrgscf.h5 from dmrg/ to pergeom/ for each geometry. "
+                           "No new calculation — reuses the existing DMRG output. "
+                           "Lighter alternative to --save-per-geom-casscf with no convergence risk.")
     parser.add_option("--n-workers", dest="n_workers", default=1, type="int",
                       help="Number of parallel worker processes for per-geometry loops (DMRG entropy, "
                            "per-geom CASSCF, final CASSCF). Default: 1 (serial). "
@@ -300,7 +313,9 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
         serenity, molecules = load_orbitals_from_serenity(load_paths, settings)
         orbital_map, unmappable_orbitals = serenity.get_orbital_map()
     # Generate the Molcas orbital files.
-    interfaces, molecules = construct_molecules(configuration)
+    # When external orbitals are provided, pass them so the IBO pymolcas step is skipped.
+    _ext_orbs = configuration.external_orbital_files if configuration.use_external_orbitals else None
+    interfaces, molecules = construct_molecules(configuration, external_orbital_files=_ext_orbs)
 
     # Apply CLI overrides to molcas settings
     if configuration.rasscf_sx_max_iter is not None:
@@ -311,7 +326,17 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
             molcas.settings.rasscf_level_shift = configuration.rasscf_level_shift
 
     # Restart from existing DMRG results: skip orbital prep, IBO, DMRG, and CAS combination.
+    # EXPERIMENTAL — disabled. Levshift scan from the MINAO1 folder crashed at system 2 for
+    # all levshifts, matching the MINAO3 crash point, indicating the restart silently used
+    # the wrong MINAO basis. Root cause undiagnosed. See next_steps.md §0.6.
     if configuration.restart_from_dmrg:
+        raise NotImplementedError(
+            "--restart-from-dmrg is experimental and produces unreliable results. "
+            "Levshift has no discriminating power in restart runs due to an undiagnosed "
+            "MINAO basis mix-up (crash point matches wrong MINAO tier). "
+            "Do not use until the issue is diagnosed. See next_steps.md §0.6."
+        )
+    if False:  # preserved for reference; unreachable until restart is fixed
         dmrg_dir = os.path.join(FileHandler.get_project_path(),
                                 FileHandler.DirectoryNames.initial_dmrg)
         cas_file = os.path.join(dmrg_dir, "combined_cas_spaces")
@@ -427,8 +452,8 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
             _isolate_worker_scratch(base_scratch, worker_scratch, iface.project_name)
             iface.environment.molcas_scratch_dir = worker_scratch
             iface.set_initial_cas_state(False)
-            cas_occ, cas_idx = run_autocas(mol, iface, nm, large_cas, force)
-            return cas_occ, cas_idx, iface.orbital_file
+            cas_occ, cas_idx, was_forced = run_autocas(mol, iface, nm, large_cas, force)
+            return cas_occ, cas_idx, iface.orbital_file, was_forced
         return job
 
     dmrg_jobs = [
@@ -437,20 +462,34 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
         for i in configuration.autocas_indices
     ]
     dmrg_results = _run_parallel(dmrg_jobs, configuration.n_workers)
-    for i, (cas_occ, cas_idx, orb_file) in zip(configuration.autocas_indices, dmrg_results):
+    was_forced_list: List[bool] = [False] * len(interfaces)
+    for i, (cas_occ, cas_idx, orb_file, was_forced) in zip(configuration.autocas_indices, dmrg_results):
         cas_occupations[i] = cas_occ  # type: ignore
         cas_indices[i] = cas_idx
         interfaces[i].orbital_file = orb_file  # sync mutation from forked worker
+        was_forced_list[i] = was_forced
 
     # Log per-geometry CAS selections before combining (for inspection/debugging)
     os.makedirs(_dmrg_dir, exist_ok=True)
     per_geom_log = open(os.path.join(_dmrg_dir, "per_geometry_cas_spaces"), "w")
-    for cas_idx, cas_occ, nm in zip(cas_indices, cas_occupations, names):
+    for cas_idx, cas_occ, nm, wf in zip(cas_indices, cas_occupations, names, was_forced_list):
         n_e = sum(cas_occ) if cas_occ else 0
         per_geom_log.write(f"system {nm}: CAS({n_e},{len(cas_idx)}) indices: {cas_idx}\n")
         per_geom_log.write(f"system {nm}: occupation: {cas_occ}\n")
-        print(f"  per-geom CAS {nm}: CAS({n_e},{len(cas_idx)})")
+        per_geom_log.write(f"system {nm}: force_cas: {wf}\n")
+        print(f"  per-geom CAS {nm}: CAS({n_e},{len(cas_idx)}){' [force_cas]' if wf else ''}")
     per_geom_log.close()
+
+    if configuration.save_per_geom_dmrgscf:
+        print("*** Saving per-geometry DMRG h5 files (copy from dmrg/ to pergeom/) ***")
+        pergeom_dir = os.path.join(FileHandler.get_project_path(), "pergeom")
+        os.makedirs(pergeom_dir, exist_ok=True)
+        for iface in interfaces:
+            src = os.path.join(_dmrg_dir, f"{iface.project_name}.dmrgscf.h5")
+            dst = os.path.join(pergeom_dir, f"{iface.project_name}.dmrgscf.h5")
+            if os.path.exists(src):
+                shutil.copy2(src, dst)
+                print(f"  [save-per-geom-dmrgscf] {iface.project_name}")
 
     if configuration.save_per_geom_casscf:
         print(f"*** Running per-geometry CASSCF (pre-union), {configuration.n_workers} worker(s) ***")

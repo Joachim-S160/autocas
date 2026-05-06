@@ -13,7 +13,7 @@ from scine_autocas.plots import EntanglementPlot, ThresholdPlot
 def run_small_active_space(autocas: Autocas, molcas: Molcas, name: str,
                            occ_initial: List[int], index_initial: List[int],
                            force_cas: bool = False)\
-        -> Tuple[List[int], List[int]]:
+        -> Tuple[List[int], List[int], bool]:
     """
     Run autoCAS with the small active space protocol.
 
@@ -54,11 +54,11 @@ def run_small_active_space(autocas: Autocas, molcas: Molcas, name: str,
         s1_entropy,  # type: ignore
         force_cas=force_cas
     )
-    return cas_occ, cas_index
+    return cas_occ, cas_index, autocas.was_forced
 
 
 def run_large_active_space(autocas: Autocas, molcas: Molcas, name: str,
-                           force_cas: bool = False) -> Tuple[List[int], List[int]]:
+                           force_cas: bool = False) -> Tuple[List[int], List[int], bool]:
     """
     Run autoCAS with the large active space protocol.
 
@@ -124,11 +124,11 @@ def run_large_active_space(autocas: Autocas, molcas: Molcas, name: str,
         force_cas=force_cas
     )
 
-    return cas_occ, cas_index
+    return cas_occ, cas_index, autocas.was_forced
 
 
 def run_autocas(molecule: Molecule, molcas: Molcas, name: str, large_active_space: bool,
-                force_cas: bool = False) -> Tuple[List[int], List[int]]:
+                force_cas: bool = False) -> Tuple[List[int], List[int], bool]:
     """
     Run the autoCAS workflow.
 

@@ -49,6 +49,7 @@ class Autocas:
         "large_spaces",
         "_excited_states_orbital_indices",
         "_excited_states_mod",
+        "was_forced",
     )
 
     def __init__(self, molecule: Molecule):
@@ -78,6 +79,8 @@ class Autocas:
         """stores excited states CAS indices"""
         self._excited_states_mod: int = -1
         """handles excited states in combination with large CAS"""
+        self.was_forced: bool = False
+        """set to True when force_cas overrode the single-reference check"""
 
     def setup_from_dict(self, settings: Dict[str, Any]):
         """Apply settings from a dict to the autocas object.
@@ -356,12 +359,15 @@ class Autocas:
             if diagnostics result in single reference and no cas is forced.
         """
         # check for single reference
-        if self.diagnostics.is_single_reference(s1) and not force_cas:
-            output_string = "Single orbital entropies (s1) are too low. AutoCAS suggests no active space.\n"
-            output_string += "Note: if you want an active space calculation anyway, you can enforce this\n"
-            output_string += "behavior, by adding 'force_cas=True' as agrument."
-            print(output_string)
-            raise SingleReferenceException("No active space method required here")
+        self.was_forced = False
+        if self.diagnostics.is_single_reference(s1):
+            if not force_cas:
+                output_string = "Single orbital entropies (s1) are too low. AutoCAS suggests no active space.\n"
+                output_string += "Note: if you want an active space calculation anyway, you can enforce this\n"
+                output_string += "behavior, by adding 'force_cas=True' as agrument."
+                print(output_string)
+                raise SingleReferenceException("No active space method required here")
+            self.was_forced = True
 
     def _pretty_return(self):
         """Ensure that cas occupation is always list of int."""

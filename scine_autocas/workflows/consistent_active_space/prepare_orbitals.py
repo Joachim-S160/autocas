@@ -3,14 +3,19 @@ __copyright__ = """This code is licensed under the 3-clause BSD license.
 Copyright ETH Zurich, Department of Chemistry and Applied Biosciences, Reiher Group.
 See LICENSE.txt for details. """
 
-from typing import List, Tuple
+import os
+import shutil
+from typing import List, Optional, Tuple
 from scine_autocas.workflows.consistent_active_space.configuration import ConsistentActiveSpaceConfiguration
 from scine_autocas import Molecule
 from scine_autocas.interfaces import Molcas, Serenity
+
 from scine_autocas.utils.defaults import Defaults
 
 
-def setup_molcas_and_molecule(xyz_file: str, name: str, basis_set: str, spin_multiplicity: int = 1) -> Tuple[Molcas, Molecule]:
+def setup_molcas_and_molecule(xyz_file: str, name: str, basis_set: str,
+                               spin_multiplicity: int = 1,
+                               external_orbital_file: Optional[str] = None) -> Tuple[Molcas, Molecule]:
     """
     Setup Molcas interface and molecule from an XYZ file.
 
@@ -22,6 +27,12 @@ def setup_molcas_and_molecule(xyz_file: str, name: str, basis_set: str, spin_mul
         The system name.
     basis_set: str
         The AO basis set.
+    spin_multiplicity: int
+        Spin multiplicity of the molecule.
+    external_orbital_file: str, optional
+        Path to an existing .scf.h5 file. When provided, IBO still runs (SEWARD is
+        required to generate the RunFile for DMRG), but the resulting orbital file is
+        replaced with this external file before the DMRG step.
 
     Returns
     -------
@@ -35,12 +46,20 @@ def setup_molcas_and_molecule(xyz_file: str, name: str, basis_set: str, spin_mul
     # setup interface
     molcas.project_name = name
     molcas.settings.basis_set = basis_set
-    # # Prepare settings for the DMRG calculation, generating the single-orbital entropies.
     molcas.set_cas_method("dmrgci")
-    # manually set dmrg sweeps and bond dmrg_bond_dimension to low number
     molcas.settings.dmrg_bond_dimension = Defaults.Interface.init_dmrg_bond_dimension
     molcas.settings.dmrg_sweeps = Defaults.Interface.init_dmrg_sweeps
-    molcas.calculate()
+
+    if external_orbital_file is not None and os.path.exists(external_orbital_file):
+        # Run IBO (GATEWAY+SEWARD+SCF) to generate the RunFile and integrals in scratch —
+        # DMRG requires system_N.RunFile which is only created by SEWARD.
+        molcas.calculate()
+        # Replace the IBO-generated orbital file with the external (Serenity) one.
+        shutil.copy2(external_orbital_file, molcas.orbital_file)
+        molcas.hdf5_utils.read_hdf5(molcas.orbital_file)
+        print(f"  [external orbitals] {name}: replaced IBO orbitals with {os.path.basename(external_orbital_file)}")
+    else:
+        molcas.calculate()
     return molcas, molecule
 
 
@@ -65,7 +84,8 @@ def print_orbital_map(orbital_map: List[List[List[int]]]) -> None:
         print(to_out)
 
 
-def construct_molecules(configuration: ConsistentActiveSpaceConfiguration) -> Tuple[List[Molcas], List[Molecule]]:
+def construct_molecules(configuration: ConsistentActiveSpaceConfiguration,
+                        external_orbital_files: Optional[List[str]] = None) -> Tuple[List[Molcas], List[Molecule]]:
     """
     Construct the Molcas interfaces and Molecule objects from the configuration.
 
@@ -73,6 +93,9 @@ def construct_molecules(configuration: ConsistentActiveSpaceConfiguration) -> Tu
     ----------
     configuration: ConsistentActiveSpaceConfiguration
         The calculation configuration.
+    external_orbital_files: list of str, optional
+        Pre-existing .scf.h5 files (one per geometry). When provided, the IBO pymolcas
+        step is skipped for each geometry that has a matching file.
 
     Returns
     -------
@@ -81,8 +104,12 @@ def construct_molecules(configuration: ConsistentActiveSpaceConfiguration) -> Tu
     """
     interfaces = []
     molecules = []
-    for xyz, name in zip(configuration.xyz_files, configuration.system_names):
-        molcas, molecule = setup_molcas_and_molecule(xyz, name, configuration.basis_set, configuration.spin_multiplicity)
+    for i, (xyz, name) in enumerate(zip(configuration.xyz_files, configuration.system_names)):
+        ext_orb = external_orbital_files[i] if (external_orbital_files and i < len(external_orbital_files)) else None
+        molcas, molecule = setup_molcas_and_molecule(
+            xyz, name, configuration.basis_set, configuration.spin_multiplicity,
+            external_orbital_file=ext_orb
+        )
         molecules.append(molecule)
         interfaces.append(molcas)
     return interfaces, molecules

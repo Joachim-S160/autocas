@@ -97,35 +97,10 @@ class MolcasHdf5Utils:
             if no typeindices are found in the hdf5 file.
         """
         h5_file = h5py.File(hdf5_file, "r+")
-        # check if mo or mo_alpha typeindices are present
-        mo_alpha_bool = False
-        try:
-            # hdf5_type_indices = h5_file["MO_ALPHA_TYPEINDICES"]
-            mo_alpha_bool = True
-        except KeyError:
-            try:
-                hdf5_type_indices = h5_file.get("MO_TYPEINDICES")
-            except KeyError as exc:
-                raise KeyError(
-                    "No Typeindices found in the orbital file, smth went wrong"
-                ) from exc
-
-        # get unset typeindices
-        type_indices = self.type_indices
-        type_indices = np.array(type_indices)
-
-        # set new type indices
-        mo_alpha_bool = False
-        if not mo_alpha_bool:
-            hdf5_type_indices = h5_file["MO_TYPEINDICES"]
-        else:
-            hdf5_type_indices = h5_file["MO_ALPHA_TYPEINDICES"]
+        type_indices = np.array(self.type_indices)
+        hdf5_type_indices = h5_file["MO_TYPEINDICES"]
         for i in cas_orbitals:
-            if mo_alpha_bool:
-                type_indices[i] = "2"
-            else:
-                type_indices[i] = "2"
-
+            type_indices[i] = "2"
         hdf5_type_indices[...] = type_indices
         h5_file.close()
 

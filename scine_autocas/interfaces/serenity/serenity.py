@@ -56,7 +56,8 @@ class Serenity(Interface):
             "system_names",
             "use_pi_bias",
             "write_orbital_map_file",
-            "ibo_minao_basis"
+            "ibo_minao_basis",
+            "allow_zero_valence_virtuals"
         )
 
         def __init__(self, molecule: Molecule, settings_dict: Optional[Dict] = None):
@@ -97,8 +98,12 @@ class Serenity(Interface):
             self.write_orbital_map_file: bool = True
             """If true, Serenity will write a file containing the orbital mapping."""
             self.ibo_minao_basis: str = "MINAO"
-            """Minimal basis for IAO/IBO construction. Use MINAO1/MINAO2/MINAO3 for open-shell systems
-            with higher spin multiplicity that require nMINAO > nOcc_alpha (e.g. triplet, quintet)."""
+            """Minimal basis for IAO/IBO construction.
+            MINAO: cc-pVTZ for Z=1-36, ANO-RCC for Z>=37 (sufficient for singlets).
+            MINAO1/2/3: tier-1/2/3 ANO-RCC for ALL Z — use for doublets/triplets/quartets."""
+            self.allow_zero_valence_virtuals: bool = False
+            """If True, suppress the SerenityError when zero virtual valence orbitals are available.
+            Use a larger MINAO tier instead of setting this."""
             if settings_dict:
                 self.apply_settings(settings_dict)
 
@@ -213,6 +218,7 @@ class Serenity(Interface):
         loc_settings.replaceVirtuals = True
         loc_settings.rydbergEnergyCutoff = self.settings.rydberg_energy_cutoff
         loc_settings.iboMinaoBasis = self.settings.ibo_minao_basis
+        loc_settings.allowZeroValenceVirtuals = self.settings.allow_zero_valence_virtuals
         if not self.settings.skip_localization:
             self.localize_orbitals(sys_zero, loc_settings)
 

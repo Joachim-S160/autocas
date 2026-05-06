@@ -363,11 +363,15 @@ class Molcas(Interface):
                 return "Happy landing!" in f.read()
 
         def _is_convergence_failure() -> bool:
-            """Return True if the last run failed due to CASSCF non-convergence."""
+            """Return True if the last run failed due to CASSCF non-convergence or floating-point error."""
             try:
                 with open(molcas_internal_log_file, "r") as f:
                     log_content = f.read()
-                return "_RC_NOT_CONVERGED_" in log_content or "BirthCertificate" in log_content
+                return (
+                    "_RC_NOT_CONVERGED_" in log_content
+                    or "BirthCertificate" in log_content
+                    or "_RC_FLOATING_EXCEPTION_" in log_content
+                )
             except FileNotFoundError:
                 return False
 
@@ -377,7 +381,7 @@ class Molcas(Interface):
         if not success and _is_convergence_failure():
             # Sweep alternative LEVShift values.  Skip any value equal to the
             # one that just failed to avoid a pointless duplicate attempt.
-            retry_sequence = [0.5, 0.75, 0.1, 0.0]
+            retry_sequence = [0.3, 0.5, 0.75, 1.0, 1.5, 0.1, 0.0]
             for ls in retry_sequence:
                 if abs(ls - original_level_shift) < 1e-6:
                     continue
