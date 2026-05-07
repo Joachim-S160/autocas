@@ -127,8 +127,32 @@ def run_large_active_space(autocas: Autocas, molcas: Molcas, name: str,
     return cas_occ, cas_index, autocas.was_forced
 
 
+def _ensure_somos_included(cas_occ: List[int], cas_idx: List[int],
+                           initial_occ: List[int], initial_idx: List[int],
+                           spin_mult: int) -> Tuple[List[int], List[int]]:
+    """Add back SOMOs from the initial valence CAS that entropy selection dropped.
+
+    Entropy-based selection can discard non-bonding SOMOs (near-zero entanglement)
+    at stretched geometries, leaving fewer SOMOs than the spin multiplicity demands.
+    """
+    somo_pairs = [(idx, occ) for idx, occ in zip(initial_idx, initial_occ)
+                  if occ == 1 and idx not in cas_idx]
+    if not somo_pairs:
+        return cas_occ, cas_idx
+    n_required = spin_mult - 1
+    print(
+        f"[WARNING] spin_mult={spin_mult} requires {n_required} SOMO(s) but entropy selection "
+        f"dropped {len(somo_pairs)} SOMO(s) (indices {[s[0] for s in somo_pairs]}). "
+        f"Adding them back to ensure CAS is compatible with the required spin."
+    )
+    new_idx = list(cas_idx) + [s[0] for s in somo_pairs]
+    new_occ = list(cas_occ) + [s[1] for s in somo_pairs]
+    paired = sorted(zip(new_idx, new_occ))
+    return [p[1] for p in paired], [p[0] for p in paired]
+
+
 def run_autocas(molecule: Molecule, molcas: Molcas, name: str, large_active_space: bool,
-                force_cas: bool = False) -> Tuple[List[int], List[int], bool]:
+                force_cas: bool = False) -> Tuple[List[int], List[int], bool, List[int], List[int]]:
     """
     Run the autoCAS workflow.
 
@@ -148,8 +172,10 @@ def run_autocas(molecule: Molecule, molcas: Molcas, name: str, large_active_spac
 
     Returns
     -------
-    Tuple[List[int], List[int]]
-        The occupations and indices of the CAS suggested by autoCAS.
+    Tuple[List[int], List[int], bool, List[int], List[int]]
+        cas_occ, cas_idx, was_forced, initial_valence_occ, initial_valence_idx
+        — the entropy-selected CAS plus the full initial valence CAS used as the
+        physical-occupation reference for downstream union/fallback steps.
     """
     # initialize autoCAS
     autocas = Autocas(molecule)
@@ -160,5 +186,13 @@ def run_autocas(molecule: Molecule, molcas: Molcas, name: str, large_active_spac
     if large_active_space and len(occ_initial) > autocas.large_spaces.max_orbitals:
         print("Large Active Space Selection")
         autocas.large_spaces.max_orbitals = min(len(occ_initial), autocas.large_spaces.max_orbitals)
-        return run_large_active_space(autocas, molcas, name, force_cas)
-    return run_small_active_space(autocas, molcas, name, occ_initial, index_initial, force_cas)
+        cas_occ, cas_idx, was_forced = run_large_active_space(autocas, molcas, name, force_cas)
+    else:
+        cas_occ, cas_idx, was_forced = run_small_active_space(
+            autocas, molcas, name, occ_initial, index_initial, force_cas)
+
+    if molecule.spin_multiplicity > 1:
+        cas_occ, cas_idx = _ensure_somos_included(
+            cas_occ, cas_idx, occ_initial, index_initial, molecule.spin_multiplicity)
+
+    return cas_occ, cas_idx, was_forced, occ_initial, index_initial

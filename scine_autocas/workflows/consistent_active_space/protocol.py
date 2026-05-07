@@ -452,8 +452,9 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
             _isolate_worker_scratch(base_scratch, worker_scratch, iface.project_name)
             iface.environment.molcas_scratch_dir = worker_scratch
             iface.set_initial_cas_state(False)
-            cas_occ, cas_idx, was_forced = run_autocas(mol, iface, nm, large_cas, force)
-            return cas_occ, cas_idx, iface.orbital_file, was_forced
+            cas_occ, cas_idx, was_forced, init_occ, init_idx = run_autocas(
+                mol, iface, nm, large_cas, force)
+            return cas_occ, cas_idx, iface.orbital_file, was_forced, init_occ, init_idx
         return job
 
     dmrg_jobs = [
@@ -463,11 +464,16 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
     ]
     dmrg_results = _run_parallel(dmrg_jobs, configuration.n_workers)
     was_forced_list: List[bool] = [False] * len(interfaces)
-    for i, (cas_occ, cas_idx, orb_file, was_forced) in zip(configuration.autocas_indices, dmrg_results):
+    initial_valence_occupations: List[List[int]] = [[] for _ in interfaces]
+    initial_valence_indices: List[List[int]] = [[] for _ in interfaces]
+    for i, (cas_occ, cas_idx, orb_file, was_forced, init_occ, init_idx) in zip(
+            configuration.autocas_indices, dmrg_results):
         cas_occupations[i] = cas_occ  # type: ignore
         cas_indices[i] = cas_idx
         interfaces[i].orbital_file = orb_file  # sync mutation from forked worker
         was_forced_list[i] = was_forced
+        initial_valence_occupations[i] = init_occ
+        initial_valence_indices[i] = init_idx
 
     # Log per-geometry CAS selections before combining (for inspection/debugging)
     os.makedirs(_dmrg_dir, exist_ok=True)
@@ -530,7 +536,13 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
     print("*******************************************************************************************")
 
     # Combine CAS
-    combined_occupations, combined_indices = combine_active_spaces(cas_occupations, cas_indices, orbital_map)
+    # initial_valence_occupations is the per-system ROHF reference for orbitals
+    # not present in a system's per-geom CAS — avoids unphysical NACTEL drift
+    # when an aligned slot links a SOMO in one geometry to a DOMO in another.
+    combined_occupations, combined_indices = combine_active_spaces(
+        cas_occupations, cas_indices, orbital_map,
+        initial_valence_occupations=initial_valence_occupations,
+        initial_valence_indices=initial_valence_indices)
     # Always include all unmappable orbitals if required.
     if configuration.unmappable:
         unmappable_occupied = unmappable_orbitals[0]

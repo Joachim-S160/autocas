@@ -7,7 +7,7 @@ __copyright__ = """ This code is licensed under the 3-clause BSD license.
 Copyright ETH Zurich, Department of Chemistry and Applied Biosciences, Reiher Group.
 See LICENSE.txt for details. """
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -37,7 +37,10 @@ def transform_orbital_groups(orbital_groups: List[List[List[int]]]):
 
 
 def combine_active_spaces(occupations: List[List[int]], active_spaces: List[List[int]],
-                          orbital_groups: List[List[List[int]]]) -> Tuple[List[List[int]], List[List[int]]]:
+                          orbital_groups: List[List[List[int]]],
+                          initial_valence_occupations: Optional[List[List[int]]] = None,
+                          initial_valence_indices: Optional[List[List[int]]] = None
+                          ) -> Tuple[List[List[int]], List[List[int]]]:
     """Combine multiple active spaces (e.g., from points along a reaction coordinate) with an orbital map.
 
     Parameters
@@ -59,6 +62,16 @@ def combine_active_spaces(occupations: List[List[int]], active_spaces: List[List
         This list means that the orbitals 3, 4, and 5 of the first system are mapped to the orbitals 3, 4, and 6 of
         the second system. The orbital 6 of system 1 is mapped to orbital 5 of system 2, and the orbital 7 of system
         1 is mapped to the orbital 7 of system 2.
+    initial_valence_occupations : Optional[List[List[int]]]
+        Per-system ROHF occupations of the initial valence CAS (open-shell only).
+        Used as fallback when an orbital is added to the union via alignment but
+        was not in that system's per-geom CAS. Without this, fallback was
+        ``max(known)`` which mis-attributes a SOMO occupation to a DOMO orbital
+        (or vice versa) when an alignment crosses occupation type, producing an
+        active space whose total electron count is incompatible with the spin
+        multiplicity (odd NACTEL with quintet, etc.).
+    initial_valence_indices : Optional[List[List[int]]]
+        Per-system orbital indices corresponding to ``initial_valence_occupations``.
 
     Returns
     -------
@@ -68,30 +81,44 @@ def combine_active_spaces(occupations: List[List[int]], active_spaces: List[List
     #                      1: system index
     #                      2: orbital index
     orbital_to_group = transform_orbital_groups(orbital_groups)
-    # Key: (group_index, position_within_group) → occupation.
-    # Per-slot tracking instead of per-group tracking so that a large degenerate group
-    # containing both DOMOs (occ=2) and SOMOs (occ=1) — common for open-shell systems where
-    # GDOS lumps all occupied orbitals into one group — does not trigger a false ValueError.
-    # A genuine inconsistency (same mapped orbital with different occ across geometries) still raises.
-    active_slots: Dict[Tuple[int, int], int] = {}
+    n_systems = len(orbital_groups[0])
+
+    # Build per-system orbital→occupation lookup from the initial valence CAS.
+    # If not provided we keep the legacy behaviour (max of known across systems).
+    initial_lookups: List[Dict[int, int]] = []
+    if initial_valence_occupations is not None and initial_valence_indices is not None:
+        for occ_list, idx_list in zip(initial_valence_occupations, initial_valence_indices):
+            initial_lookups.append({int(idx): int(occ) for idx, occ in zip(idx_list, occ_list)})
+
+    # Key: (group_index, position_within_group) → per-system occupation list.
+    # Each system records its own occupation rather than a global max so that
+    # orbital crossings between geometries (e.g. σ↔σ* at stretched vs. compressed)
+    # do not inflate the electron count in the combined active space.
+    active_slot_occs: Dict[Tuple[int, int], List[Optional[int]]] = {}
     for i_sys, (occupation, active_space) in enumerate(zip(occupations, active_spaces)):
         for i_orb, occ in zip(active_space, occupation):
             i_group = int(orbital_to_group[i_orb, i_sys])
             i_pos = orbital_groups[i_group][i_sys].index(i_orb)
             slot_key = (i_group, i_pos)
-            if slot_key not in active_slots:
-                active_slots[slot_key] = occ
-            elif abs(occ - active_slots[slot_key]) > 1e-9:
-                raise ValueError(
-                    f"Inconsistent occupation for group {i_group}, position {i_pos} "
-                    f"(found {occ} and {active_slots[slot_key]}). The orbital mapping is incorrect."
-                )
-    # Build combined active spaces: for each active slot add the mapped orbital in every system.
-    n_systems = len(orbital_groups[0])
+            if slot_key not in active_slot_occs:
+                active_slot_occs[slot_key] = [None] * n_systems
+            active_slot_occs[slot_key][i_sys] = occ
+    # Build combined active spaces: each system uses its own occupation;
+    # for systems where the orbital was not in the per-geom CAS, fall back to
+    # the system's ROHF reference occupation (initial valence CAS) when
+    # available, otherwise to the max of known occupations.
     new_active_spaces: List[List[int]] = [[] for _ in range(n_systems)]
     new_occupations: List[List[int]] = [[] for _ in range(n_systems)]
-    for (i_group, i_pos), occ in active_slots.items():
+    for (i_group, i_pos), occ_list in active_slot_occs.items():
+        known = [o for o in occ_list if o is not None]
+        max_known = max(known)
         for i_sys, sys_orbitals in enumerate(orbital_groups[i_group]):
-            new_active_spaces[i_sys].append(sys_orbitals[i_pos])
-            new_occupations[i_sys].append(occ)
+            orb_idx = sys_orbitals[i_pos]
+            new_active_spaces[i_sys].append(orb_idx)
+            if occ_list[i_sys] is not None:
+                new_occupations[i_sys].append(occ_list[i_sys])
+            elif initial_lookups and orb_idx in initial_lookups[i_sys]:
+                new_occupations[i_sys].append(initial_lookups[i_sys][orb_idx])
+            else:
+                new_occupations[i_sys].append(max_known)
     return new_occupations, new_active_spaces
