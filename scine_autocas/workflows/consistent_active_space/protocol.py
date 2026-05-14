@@ -180,15 +180,9 @@ def run_from_command_line() -> None:
     parser.add_option("-o", "--orbital_files", dest="external_orbital_files", default="", type="str",
                       help="Comma-separated list of paths to external orbital files (e.g., OpenMolcas .ScfOrb files). "
                            "One file per system is required. Use with -e flag.")
-    parser.add_option("-L", "--localization", dest="localization_method", default="IBO", type="str",
-                      help="Orbital localization method. Options: IBO (default), PIPEK_MEZEY, BOYS, "
-                           "EDMINSTON_RUEDENBERG. Use PIPEK_MEZEY or BOYS for heavy elements where IBO fails.")
     parser.add_option("-f", "--force-cas", dest="force_cas", action="store_true", default=False,
                       help="Force active space selection even when single-orbital entropies indicate a "
                            "single-reference system. Useful for systems with low initial entropies.")
-    parser.add_option("-S", "--skip-localization", dest="skip_localization", action="store_true", default=False,
-                      help="Skip orbital localization entirely. Use canonical orbitals directly. "
-                           "Useful when localization causes issues (e.g., NaN coefficients).")
     parser.add_option("-y", "--yaml", dest="yaml_file", default="", type="str",
                       help="The configuration yaml file to use. If given, xyz files/loading paths must not be set"
                            " and all other options provided through the command line are ignored.")
@@ -203,12 +197,10 @@ def run_from_command_line() -> None:
                            "Default: use Molcas.Settings default (0.5 Eh). Use 0.1 when DMRG "
                            "orbitals are already a good starting point to avoid oscillation "
                            "(e.g. PbO near ionic/covalent crossing at R=7 Ang).")
-    parser.add_option("--restart-from-dmrg", dest="restart_from_dmrg", action="store_true", default=False,
-                      help="[EXPERIMENTAL — DO NOT USE] Skip orbital prep, IBO, DMRG, and CAS combination "
-                           "and re-run only the final CASSCF from existing DMRG output. Known to produce "
-                           "inconsistent results due to undiagnosed MINAO basis mix-up in restart runs "
-                           "(levshift has no discriminating power; crash point matches wrong MINAO tier). "
-                           "See next_steps.md §0.6 DMRG-restart anomaly.")
+    parser.add_option("--relativistic", dest="relativistic", default="R02O", type="str",
+                      help="Relativistic Hamiltonian written in OpenMolcas &SEWARD (e.g. R02O for "
+                           "second-order Douglas-Kroll-Hess; default R02O for heavy elements). "
+                           "Use empty string or NONE to disable.")
     parser.add_option("-M", "--multiplicity", dest="spin_multiplicity", default=1, type="int",
                       help="Spin multiplicity (2S+1) of the molecule. Default: 1 (singlet). "
                            "Use 3 for triplet, appropriate for heavy diatomics at the dissociation "
@@ -248,37 +240,6 @@ def run_from_command_line() -> None:
         if options.create_yaml:
             configuration.write_yaml_file()
     run_consistent_active_space_protocol(configuration)
-
-
-def _parse_combined_cas_spaces(path: str) -> Tuple[List[List[int]], List[List[int]]]:
-    """Parse a combined_cas_spaces file and return (occupations, indices).
-
-    Parameters
-    ----------
-    path : str
-        Absolute path to the combined_cas_spaces file.
-
-    Returns
-    -------
-    Tuple[List[List[int]], List[List[int]]]
-        (occupations, indices) — one entry per system in the same order as the file.
-    """
-    import ast
-    occupations: List[List[int]] = []
-    indices: List[List[int]] = []
-    with open(path) as f:
-        lines = [l.strip() for l in f if l.strip()]
-    for line in lines:
-        if line.startswith("combined cas indices:"):
-            indices.append(ast.literal_eval(line.split(":", 1)[1].strip()))
-        elif line.startswith("combined occupation:"):
-            occupations.append(ast.literal_eval(line.split(":", 1)[1].strip()))
-    if len(occupations) != len(indices):
-        raise ValueError(
-            f"Malformed combined_cas_spaces: {len(indices)} index lines, "
-            f"{len(occupations)} occupation lines in {path}."
-        )
-    return occupations, indices
 
 
 def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceConfiguration)\
@@ -324,104 +285,35 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
     if configuration.rasscf_level_shift is not None:
         for molcas in interfaces:
             molcas.settings.rasscf_level_shift = configuration.rasscf_level_shift
+    # Propagate relativistic Hamiltonian (default R02O) to all molcas interfaces.
+    for molcas in interfaces:
+        molcas.settings.relativistic = configuration.relativistic
 
-    # Restart from existing DMRG results: skip orbital prep, IBO, DMRG, and CAS combination.
-    # EXPERIMENTAL — disabled. Levshift scan from the MINAO1 folder crashed at system 2 for
-    # all levshifts, matching the MINAO3 crash point, indicating the restart silently used
-    # the wrong MINAO basis. Root cause undiagnosed. See next_steps.md §0.6.
-    if configuration.restart_from_dmrg:
-        raise NotImplementedError(
-            "--restart-from-dmrg is experimental and produces unreliable results. "
-            "Levshift has no discriminating power in restart runs due to an undiagnosed "
-            "MINAO basis mix-up (crash point matches wrong MINAO tier). "
-            "Do not use until the issue is diagnosed. See next_steps.md §0.6."
-        )
-    if False:  # preserved for reference; unreachable until restart is fixed
-        dmrg_dir = os.path.join(FileHandler.get_project_path(),
-                                FileHandler.DirectoryNames.initial_dmrg)
-        cas_file = os.path.join(dmrg_dir, "combined_cas_spaces")
-        if not os.path.exists(cas_file):
-            raise FileNotFoundError(
-                f"--restart-from-dmrg: cannot find {cas_file}. "
-                f"Run the full protocol first to generate DMRG results.")
-        print(f"[restart] Reading combined active spaces from {cas_file}")
-        combined_occupations, combined_indices = _parse_combined_cas_spaces(cas_file)
-        n_systems = len(configuration.xyz_files)
-        if len(combined_occupations) != n_systems:
-            raise ValueError(
-                f"--restart-from-dmrg: {len(combined_occupations)} entries in combined_cas_spaces "
-                f"but {n_systems} xyz files given. Check that the same xyz list is provided.")
-        for molcas, name in zip(interfaces, configuration.system_names):
-            sel_file = os.path.join(dmrg_dir, f"{name}.scf.h5_sel")
-            if not os.path.exists(sel_file):
-                raise FileNotFoundError(
-                    f"--restart-from-dmrg: orbital file not found: {sel_file}")
-            molcas.orbital_file = os.path.abspath(sel_file)
-        print("*******************************************************************************************")
-        print("*                                                                                         *")
-        print("*                    Final Calculations (restarted from DMRG)                            *")
-        print("*                                                                                         *")
-        print("*******************************************************************************************")
-        def _make_restart_job(iface, cas_occ, cas_idx, method):
-            base_scratch = iface.environment.molcas_scratch_dir
-            def job():
-                worker_scratch = os.path.join(base_scratch, "restart_" + iface.project_name)
-                _isolate_worker_scratch(base_scratch, worker_scratch, iface.project_name)
-                iface.environment.molcas_scratch_dir = worker_scratch
-                _, _, energy = run_final_calculation(iface, cas_occ, cas_idx, method)
-                return energy, iface.orbital_file
-            return job
-
-        restart_jobs = [
-            _make_restart_job(iface, cas_occ, cas_idx, configuration.cas_method)
-            for iface, cas_occ, cas_idx in zip(interfaces, combined_occupations, combined_indices)
-        ]
-        restart_results = _run_parallel(restart_jobs, configuration.n_workers)
-        energies: List[float] = []
-        for i, (energy, orb_file) in enumerate(restart_results):
-            energies.append(energy)
-            interfaces[i].orbital_file = orb_file
-        os.chdir(FileHandler.get_project_path())
-        f = open("energies.dat", "w")
-        for e in energies:
-            f.write(str(e) + "\n")
-        f.close()
-        FileHandler.DirectoryNames.project_name = initial_project_name
-        return combined_occupations, combined_indices, energies
-
-    # If the orbitals are loaded from existing files, Serenity will be initialized.
-    # Otherwise, we run the SCF calculation with Serenity.
+    # Serenity does NOT run its own SCF. The OpenMolcas initial pass already produced
+    # converged orbitals (or the user supplied external orbitals); Serenity's job is only
+    # IBO localization + GDOS orbital mapping on those orbitals.
     if serenity is None:
         serenity = Serenity(molecules, settings)
-        # Check if using external orbitals (e.g., from OpenMolcas with DKH2)
         if configuration.use_external_orbitals:
             print("Loading external orbitals (skipping Serenity SCF)...")
             print(f"External orbital files: {configuration.external_orbital_files}")
-            # Copy external orbital files to the initial directory with correct system names
-            # Serenity reads from .scf.h5 files (HDF5 format), NOT .ScfOrb (ASCII)
-            # The .scf.h5 files contain MO_ENERGIES and MO_VECTORS datasets
-            initial_dir = serenity.settings.molcas_orbital_files[0]  # All systems use same initial dir
+            # Copy external orbital files to the initial directory with correct system names.
+            # Serenity reads from .scf.h5 files (HDF5 format), NOT .ScfOrb (ASCII).
+            initial_dir = serenity.settings.molcas_orbital_files[0]
             for i, (ext_orb_file, sys_name) in enumerate(zip(configuration.external_orbital_files,
                                                               configuration.system_names)):
-                # Determine the correct destination file based on the source file extension
-                # We support both .scf.h5 (preferred) and .ScfOrb files
                 if ext_orb_file.endswith('.scf.h5'):
                     dest_file = os.path.join(initial_dir, f"{sys_name}.scf.h5")
                 elif ext_orb_file.endswith('.ScfOrb'):
-                    # Also copy .ScfOrb for compatibility, but warn that .scf.h5 is preferred
                     dest_file = os.path.join(initial_dir, f"{sys_name}.ScfOrb")
                     print(f"  WARNING: Using .ScfOrb file. For eigenvalues to be read correctly, use .scf.h5 files.")
                 else:
-                    # Try to guess based on file existence
                     dest_file = os.path.join(initial_dir, f"{sys_name}.scf.h5")
                 print(f"  Copying {ext_orb_file} -> {dest_file}")
                 shutil.copy2(ext_orb_file, dest_file)
-            # Load the external orbitals from the copied HDF5 files
-            serenity.load_or_write_molcas_orbitals()
-            # Skip Serenity SCF - we use the external orbitals directly
-        else:
-            serenity.load_or_write_molcas_orbitals()
-            serenity.calculate()
+        # Load OpenMolcas orbitals into Serenity (no SCF). get_orbital_map() runs
+        # IBO localization + GDOS on these orbitals.
+        serenity.load_or_write_molcas_orbitals()
         orbital_map, unmappable_orbitals = serenity.get_orbital_map()
     names = serenity.settings.system_names
     print_orbital_map(orbital_map)

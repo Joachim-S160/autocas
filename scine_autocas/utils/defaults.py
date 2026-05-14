@@ -242,6 +242,9 @@ s in a sub-cas."""
         uhf: bool = False
         """Enable unrestriced HF. If your provided system is open-shell with the corresponding
         charge and/or spin multiplicity uhf is enabled automatically. """
+        relativistic: str = "R02O"
+        """Relativistic Hamiltonian written in OpenMolcas &SEWARD (e.g. "R02O" for second-order
+        DKH; empty string or "NONE" disables). Default matches the heavy-element workflow."""
         init_fiedler: bool = True
         """Enable fiedler ordering for DMRG in the active space selection."""
         fiedler: bool = True

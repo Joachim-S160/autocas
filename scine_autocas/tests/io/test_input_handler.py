@@ -49,6 +49,7 @@ class TestInputHandler(unittest.TestCase):
                 "init_dmrg_sweeps": 5,
                 "init_dmrg_bond_dimension": 250,
                 "uhf": False,
+                "relativistic": "R02O",
                 "n_excited_states": 0,
                 "dmrg_solver": "QCMaquis",
                 "init_cas_method": "dmrgscf",

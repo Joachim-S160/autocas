@@ -38,18 +38,18 @@ class InputHandler:
         input_file.write("\n&SEWARD\n")
         if settings.cholesky:
             input_file.write("  CHOLesky\n")
+        if getattr(settings, "relativistic", "") and getattr(settings, "relativistic", "").upper() != "NONE":
+            input_file.write(f"  Relativistic = {settings.relativistic}\n")
+
+        if getattr(settings, "skip_scf_block", False):
+            return
+
         input_file.write("\n&SCF\n")
         if settings.uhf or settings.get_molecule().spin_multiplicity != 1:
             input_file.write("  uhf\n")
-        # if settings.skip_scf:
-        #     input_file.write("  ITERations = 1\n")
-        #     input_file.write("  THREshold  = 1e+9 1e+9 1e+9 1e+9\n")
-
         # multiplicity, e.g. 1 (singlet), 2 (doublet), ...
         input_file.write(f"  SPIN   = {settings.get_molecule().spin_multiplicity}\n")
         input_file.write(f"  CHARGE = {settings.get_molecule().charge}\n")
-        if settings.cholesky:
-            input_file.write("  CHOLesky\n")
         if settings.orbital_localisation:
             input_file.write("\n&LOCALISATION\n")
             input_file.write(f"  {settings.localisation_space}\n")

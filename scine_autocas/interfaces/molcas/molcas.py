@@ -16,6 +16,7 @@ from scine_autocas.interfaces.interface import Interface
 from scine_autocas.interfaces.qcmaquis_utils import QcmaquisUtils
 from scine_autocas.io import FileHandler
 from scine_autocas.utils import Molecule
+from scine_autocas.utils.defaults import Defaults
 
 from .environment import Environment
 from .input_handler import InputHandler
@@ -91,6 +92,8 @@ class Molcas(Interface):
         __slots__ = (
             "point_group",
             "cholesky",
+            "relativistic",
+            "skip_scf_block",
             "ci_root_string",
             "alpha_or_beta_string",
             "ipea",
@@ -128,6 +131,12 @@ class Molcas(Interface):
             """
             self.cholesky: bool = True
             """toggle Cholesky decomposition"""
+            self.relativistic: str = Defaults.Interface.relativistic
+            """Relativistic Hamiltonian written in &SEWARD (e.g. "R02O" for second-order DKH).
+            Empty string or "NONE" disables the keyword."""
+            self.skip_scf_block: bool = False
+            """If True, the initial-orbitals input writes only &GATEWAY and &SEWARD (no &SCF).
+            Used by the external-orbitals workflow where DMRG/RASSCF reads orbitals via FILEORB."""
             self.ci_root_string: str = ""
             """string of the reference determinant"""
             self.alpha_or_beta_string: int = 1
@@ -168,8 +177,6 @@ class Molcas(Interface):
             """Max Super-CI (SX) inner iterations per RASSCF macro-step (ITERations keyword, 2nd value).
             Pre-Mertens autoCAS default. 50 was used in the Mertens settings but was a regression;
             100 is the correct value when paired with LEVShift=0.5."""
-            # self.skip_scf = True
-
             # available method for this interface
             self._add_cas_method("casci", "casscf", "dmrgscf")
             self._add_post_cas_method("caspt2", "nevpt2")
@@ -464,6 +471,11 @@ class Molcas(Interface):
 
         # set class variables
         self.orbital_file = os.getcwd() + "/" + self.project_name + ".scf.h5"
+
+        # In SCF-less init mode (external-orbitals workflow) no .scf.h5 is produced.
+        # The caller (prepare_orbitals) re-points orbital_file at the user-supplied file.
+        if getattr(self.settings, "skip_scf_block", False):
+            return
 
         # get typeindice (and other variables)
         self.hdf5_utils.read_hdf5(self.orbital_file)

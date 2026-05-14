@@ -47,6 +47,18 @@ class TestConsistentActiveSpaceConfiguration(unittest.TestCase):
                 self.large_active_space = False
                 self.exclude_core = False
                 self.always_include_unmapables = False
+                self.use_external_orbitals = False
+                self.external_orbital_files = ""
+                self.force_cas = False
+                self.rasscf_sx_max_iter = None
+                self.rasscf_level_shift = None
+                self.relativistic = "R02O"
+                self.spin_multiplicity = 1
+                self.ibo_minao_basis = "MINAO"
+                self.save_per_geom_casscf = False
+                self.save_per_geom_dmrgscf = False
+                self.n_workers = 1
+                self.allow_zero_valence_virtuals = False
 
         options = DummyOptions()
         xyz_files = [os.path.join(self.file_base_path, file_name) for file_name in ["n2_0.xyz", "n2_1.xyz"]]

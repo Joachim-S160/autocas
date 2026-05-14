@@ -4,7 +4,6 @@ Copyright ETH Zurich, Department of Chemistry and Applied Biosciences, Reiher Gr
 See LICENSE.txt for details. """
 
 import os
-import shutil
 from typing import List, Optional, Tuple
 from scine_autocas.workflows.consistent_active_space.configuration import ConsistentActiveSpaceConfiguration
 from scine_autocas import Molecule
@@ -15,7 +14,8 @@ from scine_autocas.utils.defaults import Defaults
 
 def setup_molcas_and_molecule(xyz_file: str, name: str, basis_set: str,
                                spin_multiplicity: int = 1,
-                               external_orbital_file: Optional[str] = None) -> Tuple[Molcas, Molecule]:
+                               external_orbital_file: Optional[str] = None,
+                               relativistic: str = Defaults.Interface.relativistic) -> Tuple[Molcas, Molecule]:
     """
     Setup Molcas interface and molecule from an XYZ file.
 
@@ -30,34 +30,35 @@ def setup_molcas_and_molecule(xyz_file: str, name: str, basis_set: str,
     spin_multiplicity: int
         Spin multiplicity of the molecule.
     external_orbital_file: str, optional
-        Path to an existing .scf.h5 file. When provided, IBO still runs (SEWARD is
-        required to generate the RunFile for DMRG), but the resulting orbital file is
-        replaced with this external file before the DMRG step.
+        Path to an existing .scf.h5 file. When provided, the OpenMolcas &SCF block is
+        skipped (only &GATEWAY + &SEWARD run to produce the RunFile); the supplied file
+        is used as-is for the subsequent DMRG/RASSCF steps via FILEORB.
+    relativistic: str
+        Relativistic Hamiltonian string passed to &SEWARD (default "R02O" for DKH2).
+        Pass empty string or "NONE" to disable.
 
     Returns
     -------
     Tuple[Molcas, Molecule]
         The Molcas interface and the Molecule object.
     """
-    # create a molecule
     molecule = Molecule(xyz_file, spin_multiplicity=spin_multiplicity)
-    # initialize autoCAS and Molcas interface
     molcas = Molcas(molecule)
-    # setup interface
     molcas.project_name = name
     molcas.settings.basis_set = basis_set
     molcas.set_cas_method("dmrgci")
     molcas.settings.dmrg_bond_dimension = Defaults.Interface.init_dmrg_bond_dimension
     molcas.settings.dmrg_sweeps = Defaults.Interface.init_dmrg_sweeps
+    molcas.settings.relativistic = relativistic
 
     if external_orbital_file is not None and os.path.exists(external_orbital_file):
-        # Run IBO (GATEWAY+SEWARD+SCF) to generate the RunFile and integrals in scratch —
-        # DMRG requires system_N.RunFile which is only created by SEWARD.
+        # SCF-less init: GATEWAY + SEWARD only — DMRG/RASSCF reads user orbitals via FILEORB.
+        # Running the full SCF and then overwriting the result is wasted compute.
+        molcas.settings.skip_scf_block = True
         molcas.calculate()
-        # Replace the IBO-generated orbital file with the external (Serenity) one.
-        shutil.copy2(external_orbital_file, molcas.orbital_file)
+        molcas.orbital_file = os.path.abspath(external_orbital_file)
         molcas.hdf5_utils.read_hdf5(molcas.orbital_file)
-        print(f"  [external orbitals] {name}: replaced IBO orbitals with {os.path.basename(external_orbital_file)}")
+        print(f"  [external orbitals] {name}: SCF-less init; using {os.path.basename(external_orbital_file)}")
     else:
         molcas.calculate()
     return molcas, molecule
@@ -108,7 +109,8 @@ def construct_molecules(configuration: ConsistentActiveSpaceConfiguration,
         ext_orb = external_orbital_files[i] if (external_orbital_files and i < len(external_orbital_files)) else None
         molcas, molecule = setup_molcas_and_molecule(
             xyz, name, configuration.basis_set, configuration.spin_multiplicity,
-            external_orbital_file=ext_orb
+            external_orbital_file=ext_orb,
+            relativistic=configuration.relativistic,
         )
         molecules.append(molecule)
         interfaces.append(molcas)
