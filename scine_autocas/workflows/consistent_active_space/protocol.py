@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import traceback
 from pathlib import Path
 from typing import List, Tuple
@@ -17,11 +18,31 @@ from scine_autocas.cas_selection.cas_combination import combine_active_spaces
 from scine_autocas.interfaces import Molcas, Serenity
 from scine_autocas.utils.defaults import CasMethods, PostCasMethods
 from scine_autocas.workflows.consistent_active_space.prepare_orbitals import (
-    load_orbitals_from_serenity, construct_molecules, print_orbital_map
+    load_orbitals_from_serenity, construct_molecules, print_orbital_map,
+    setup_molcas_and_molecule,
 )
 from scine_autocas.utils.defaults import Defaults
 from scine_autocas.workflows.consistent_active_space.run_autocas import run_autocas
 from scine_autocas.io import FileHandler
+
+
+def _detect_element_from_path(path: str) -> str:
+    """Detect element symbol from a file path like n2_0.xyz, po2_0.xyz, system_0.xyz."""
+    import re
+    stem = Path(path).stem.lower()
+    valid_elements = {
+        'H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 'Na', 'Mg', 'Al', 'Si',
+        'P', 'S', 'Cl', 'Ar', 'K', 'Ca', 'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni',
+        'Cu', 'Zn', 'Ga', 'Ge', 'As', 'Se', 'Br', 'Kr', 'Rb', 'Sr', 'Y', 'Zr', 'Nb',
+        'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd', 'In', 'Sn', 'Sb', 'Te', 'I', 'Xe',
+        'Cs', 'Ba', 'La', 'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt', 'Au', 'Hg', 'Tl',
+        'Pb', 'Bi', 'Po', 'At', 'Rn',
+    }
+    for pat in [r'^([a-z]{1,2})2[_\d]', r'^([a-z]{1,2})[_\d]', r'^([a-z]{1,2})\d']:
+        m = re.match(pat, stem)
+        if m and m.group(1).capitalize() in valid_elements:
+            return m.group(1)
+    return None
 
 
 def plot_ibo_distribution(serenity: Serenity) -> None:
@@ -40,11 +61,15 @@ def plot_ibo_distribution(serenity: Serenity) -> None:
     if not FileHandler.check_project_dir_exists():
         return
 
-    # Get first system's HDF5 file
     sys_zero = serenity.systems[0]
     sys_name = sys_zero.getSystemName()
-    sys_path = sys_zero.getSettings().path
-    h5file = Path(sys_path) / sys_name / f"{sys_name}.scf.h5"
+
+    # Use the canonical initial orbital directory — always autocas_project/initial/
+    # regardless of Serenity workflow type.  molcas_orbital_files[0] also points here
+    # for the standard workflow, but FileHandler is authoritative and doesn't require
+    # the settings attribute to be populated.
+    initial_dir = Path(FileHandler.get_project_path()) / FileHandler.DirectoryNames.initial_orbs
+    h5file = initial_dir / f"{sys_name}.scf.h5"
 
     if not h5file.exists():
         print(f"[WARNING] HDF5 file not found for IBO plot: {h5file}")
@@ -56,14 +81,27 @@ def plot_ibo_distribution(serenity: Serenity) -> None:
         print(f"[WARNING] IBO distribution script not found: {script_path}")
         return
 
+    # Detect element for auto-labelling: try the geometry xyz file first, then the h5 filename
+    element_args = []
+    geometry = sys_zero.getSettings().geometry
+    elem = _detect_element_from_path(geometry) if geometry else None
+    if elem is None:
+        elem = _detect_element_from_path(str(h5file))
+    if elem:
+        element_args = ["--element", elem]
+    else:
+        print("[WARNING] IBO plot: could not detect element — plot labels may be missing")
+
     print("Plotting IBO orbital distribution (IAO-constrained)")
     try:
         result = subprocess.run(
-            [sys.executable, str(script_path), str(h5file)],
+            [sys.executable, str(script_path), str(h5file)] + element_args,
             cwd=str(h5file.parent), check=False, capture_output=True, text=True
         )
         if result.returncode != 0:
             print(f"[WARNING] IBO plot script error: {result.stderr[:200]}")
+        else:
+            print(result.stdout.strip())
 
         # Copy generated plots to project directory
         project_path = FileHandler.get_project_path()
@@ -180,15 +218,9 @@ def run_from_command_line() -> None:
     parser.add_option("-o", "--orbital_files", dest="external_orbital_files", default="", type="str",
                       help="Comma-separated list of paths to external orbital files (e.g., OpenMolcas .ScfOrb files). "
                            "One file per system is required. Use with -e flag.")
-    parser.add_option("-L", "--localization", dest="localization_method", default="IBO", type="str",
-                      help="Orbital localization method. Options: IBO (default), PIPEK_MEZEY, BOYS, "
-                           "EDMINSTON_RUEDENBERG. Use PIPEK_MEZEY or BOYS for heavy elements where IBO fails.")
     parser.add_option("-f", "--force-cas", dest="force_cas", action="store_true", default=False,
                       help="Force active space selection even when single-orbital entropies indicate a "
                            "single-reference system. Useful for systems with low initial entropies.")
-    parser.add_option("-S", "--skip-localization", dest="skip_localization", action="store_true", default=False,
-                      help="Skip orbital localization entirely. Use canonical orbitals directly. "
-                           "Useful when localization causes issues (e.g., NaN coefficients).")
     parser.add_option("-y", "--yaml", dest="yaml_file", default="", type="str",
                       help="The configuration yaml file to use. If given, xyz files/loading paths must not be set"
                            " and all other options provided through the command line are ignored.")
@@ -203,12 +235,10 @@ def run_from_command_line() -> None:
                            "Default: use Molcas.Settings default (0.5 Eh). Use 0.1 when DMRG "
                            "orbitals are already a good starting point to avoid oscillation "
                            "(e.g. PbO near ionic/covalent crossing at R=7 Ang).")
-    parser.add_option("--restart-from-dmrg", dest="restart_from_dmrg", action="store_true", default=False,
-                      help="[EXPERIMENTAL — DO NOT USE] Skip orbital prep, IBO, DMRG, and CAS combination "
-                           "and re-run only the final CASSCF from existing DMRG output. Known to produce "
-                           "inconsistent results due to undiagnosed MINAO basis mix-up in restart runs "
-                           "(levshift has no discriminating power; crash point matches wrong MINAO tier). "
-                           "See next_steps.md §0.6 DMRG-restart anomaly.")
+    parser.add_option("--relativistic", dest="relativistic", default="R02O", type="str",
+                      help="Relativistic Hamiltonian written in OpenMolcas &SEWARD (e.g. R02O for "
+                           "second-order Douglas-Kroll-Hess; default R02O for heavy elements). "
+                           "Use empty string or NONE to disable.")
     parser.add_option("-M", "--multiplicity", dest="spin_multiplicity", default=1, type="int",
                       help="Spin multiplicity (2S+1) of the molecule. Default: 1 (singlet). "
                            "Use 3 for triplet, appropriate for heavy diatomics at the dissociation "
@@ -250,37 +280,6 @@ def run_from_command_line() -> None:
     run_consistent_active_space_protocol(configuration)
 
 
-def _parse_combined_cas_spaces(path: str) -> Tuple[List[List[int]], List[List[int]]]:
-    """Parse a combined_cas_spaces file and return (occupations, indices).
-
-    Parameters
-    ----------
-    path : str
-        Absolute path to the combined_cas_spaces file.
-
-    Returns
-    -------
-    Tuple[List[List[int]], List[List[int]]]
-        (occupations, indices) — one entry per system in the same order as the file.
-    """
-    import ast
-    occupations: List[List[int]] = []
-    indices: List[List[int]] = []
-    with open(path) as f:
-        lines = [l.strip() for l in f if l.strip()]
-    for line in lines:
-        if line.startswith("combined cas indices:"):
-            indices.append(ast.literal_eval(line.split(":", 1)[1].strip()))
-        elif line.startswith("combined occupation:"):
-            occupations.append(ast.literal_eval(line.split(":", 1)[1].strip()))
-    if len(occupations) != len(indices):
-        raise ValueError(
-            f"Malformed combined_cas_spaces: {len(indices)} index lines, "
-            f"{len(occupations)} occupation lines in {path}."
-        )
-    return occupations, indices
-
-
 def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceConfiguration)\
         -> Tuple[List[List[int]], List[List[int]], List[float]]:
     """
@@ -315,117 +314,120 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
     # Generate the Molcas orbital files.
     # When external orbitals are provided, pass them so the IBO pymolcas step is skipped.
     _ext_orbs = configuration.external_orbital_files if configuration.use_external_orbitals else None
-    interfaces, molecules = construct_molecules(configuration, external_orbital_files=_ext_orbs)
 
-    # Apply CLI overrides to molcas settings
-    if configuration.rasscf_sx_max_iter is not None:
-        for molcas in interfaces:
-            molcas.settings.rasscf_sx_max_iter = configuration.rasscf_sx_max_iter
-    if configuration.rasscf_level_shift is not None:
-        for molcas in interfaces:
-            molcas.settings.rasscf_level_shift = configuration.rasscf_level_shift
+    _t_init_start = time.perf_counter()
+    if configuration.n_workers > 1 and len(configuration.xyz_files) > 1:
+        _base_scratch = FileHandler.get_project_path() + "/scratch"
 
-    # Restart from existing DMRG results: skip orbital prep, IBO, DMRG, and CAS combination.
-    # EXPERIMENTAL — disabled. Levshift scan from the MINAO1 folder crashed at system 2 for
-    # all levshifts, matching the MINAO3 crash point, indicating the restart silently used
-    # the wrong MINAO basis. Root cause undiagnosed. See next_steps.md §0.6.
-    if configuration.restart_from_dmrg:
-        raise NotImplementedError(
-            "--restart-from-dmrg is experimental and produces unreliable results. "
-            "Levshift has no discriminating power in restart runs due to an undiagnosed "
-            "MINAO basis mix-up (crash point matches wrong MINAO tier). "
-            "Do not use until the issue is diagnosed. See next_steps.md §0.6."
-        )
-    if False:  # preserved for reference; unreachable until restart is fixed
-        dmrg_dir = os.path.join(FileHandler.get_project_path(),
-                                FileHandler.DirectoryNames.initial_dmrg)
-        cas_file = os.path.join(dmrg_dir, "combined_cas_spaces")
-        if not os.path.exists(cas_file):
-            raise FileNotFoundError(
-                f"--restart-from-dmrg: cannot find {cas_file}. "
-                f"Run the full protocol first to generate DMRG results.")
-        print(f"[restart] Reading combined active spaces from {cas_file}")
-        combined_occupations, combined_indices = _parse_combined_cas_spaces(cas_file)
-        n_systems = len(configuration.xyz_files)
-        if len(combined_occupations) != n_systems:
-            raise ValueError(
-                f"--restart-from-dmrg: {len(combined_occupations)} entries in combined_cas_spaces "
-                f"but {n_systems} xyz files given. Check that the same xyz list is provided.")
-        for molcas, name in zip(interfaces, configuration.system_names):
-            sel_file = os.path.join(dmrg_dir, f"{name}.scf.h5_sel")
-            if not os.path.exists(sel_file):
-                raise FileNotFoundError(
-                    f"--restart-from-dmrg: orbital file not found: {sel_file}")
-            molcas.orbital_file = os.path.abspath(sel_file)
-        print("*******************************************************************************************")
-        print("*                                                                                         *")
-        print("*                    Final Calculations (restarted from DMRG)                            *")
-        print("*                                                                                         *")
-        print("*******************************************************************************************")
-        def _make_restart_job(iface, cas_occ, cas_idx, method):
-            base_scratch = iface.environment.molcas_scratch_dir
+        def _make_init_job(xyz, name, basis_set, spin_mult, ext_orb, relativistic, base_scratch):
+            worker_scratch = os.path.join(base_scratch, f"init_{name}")
             def job():
-                worker_scratch = os.path.join(base_scratch, "restart_" + iface.project_name)
-                _isolate_worker_scratch(base_scratch, worker_scratch, iface.project_name)
-                iface.environment.molcas_scratch_dir = worker_scratch
-                _, _, energy = run_final_calculation(iface, cas_occ, cas_idx, method)
-                return energy, iface.orbital_file
+                os.makedirs(worker_scratch, exist_ok=True)
+                molcas, molecule = setup_molcas_and_molecule(
+                    xyz, name, basis_set, spin_mult, ext_orb, relativistic,
+                    skip_calculate=True,
+                )
+                molcas.environment.molcas_scratch_dir = worker_scratch
+                molcas.calculate()
+                if ext_orb is not None and os.path.exists(ext_orb):
+                    molcas.orbital_file = os.path.abspath(ext_orb)
+                    molcas.hdf5_utils.read_hdf5(molcas.orbital_file)
+                    print(f"  [external orbitals] {name}: SEWARD done; "
+                          f"using {os.path.basename(ext_orb)}")
+                # Propagate prefixed files (RunFile, OneInt, etc.) from the isolated
+                # init WorkDir back to base_scratch so _isolate_worker_scratch can
+                # find them when preparing the DMRG worker scratch dirs.
+                prefix = name + "."
+                os.makedirs(base_scratch, exist_ok=True)
+                for fname in os.listdir(worker_scratch):
+                    if fname.startswith(prefix):
+                        src = os.path.join(worker_scratch, fname)
+                        dst = os.path.join(base_scratch, fname)
+                        if not os.path.exists(dst):
+                            shutil.copy2(src, dst)
+                # Reset scratch to base so downstream DMRG workers derive their own
+                # subdirs from the same root as the serial path would.
+                molcas.environment.molcas_scratch_dir = base_scratch
+                return molcas, molecule
             return job
 
-        restart_jobs = [
-            _make_restart_job(iface, cas_occ, cas_idx, configuration.cas_method)
-            for iface, cas_occ, cas_idx in zip(interfaces, combined_occupations, combined_indices)
+        _init_jobs = [
+            _make_init_job(
+                configuration.xyz_files[i],
+                configuration.system_names[i],
+                configuration.basis_set,
+                configuration.spin_multiplicity,
+                _ext_orbs[i] if _ext_orbs else None,
+                configuration.relativistic,
+                _base_scratch,
+            )
+            for i in range(len(configuration.xyz_files))
         ]
-        restart_results = _run_parallel(restart_jobs, configuration.n_workers)
-        energies: List[float] = []
-        for i, (energy, orb_file) in enumerate(restart_results):
-            energies.append(energy)
-            interfaces[i].orbital_file = orb_file
-        os.chdir(FileHandler.get_project_path())
-        f = open("energies.dat", "w")
-        for e in energies:
-            f.write(str(e) + "\n")
-        f.close()
-        FileHandler.DirectoryNames.project_name = initial_project_name
-        return combined_occupations, combined_indices, energies
+        _init_results = _run_parallel(_init_jobs, configuration.n_workers)
+        interfaces = [r[0] for r in _init_results]
+        molecules  = [r[1] for r in _init_results]
+        for molcas in interfaces:
+            if configuration.rasscf_sx_max_iter is not None:
+                molcas.settings.rasscf_sx_max_iter = configuration.rasscf_sx_max_iter
+            if configuration.rasscf_level_shift is not None:
+                molcas.settings.rasscf_level_shift = configuration.rasscf_level_shift
+            molcas.settings.relativistic = configuration.relativistic
+    else:
+        interfaces, molecules = construct_molecules(configuration, external_orbital_files=_ext_orbs)
+        # Apply CLI overrides to molcas settings
+        if configuration.rasscf_sx_max_iter is not None:
+            for molcas in interfaces:
+                molcas.settings.rasscf_sx_max_iter = configuration.rasscf_sx_max_iter
+        if configuration.rasscf_level_shift is not None:
+            for molcas in interfaces:
+                molcas.settings.rasscf_level_shift = configuration.rasscf_level_shift
+        # Propagate relativistic Hamiltonian (default R02O) to all molcas interfaces.
+        for molcas in interfaces:
+            molcas.settings.relativistic = configuration.relativistic
+    _t_init_end = time.perf_counter()
+    print(f"[timing] init (GATEWAY+SEWARD+SCF): {_t_init_end - _t_init_start:.1f} s "
+          f"({configuration.n_workers} worker(s))")
 
-    # If the orbitals are loaded from existing files, Serenity will be initialized.
-    # Otherwise, we run the SCF calculation with Serenity.
+    # Serenity does NOT run its own SCF. The OpenMolcas initial pass already produced
+    # converged orbitals (or the user supplied external orbitals); Serenity's job is only
+    # IBO localization + GDOS orbital mapping on those orbitals.
     if serenity is None:
         serenity = Serenity(molecules, settings)
-        # Check if using external orbitals (e.g., from OpenMolcas with DKH2)
         if configuration.use_external_orbitals:
             print("Loading external orbitals (skipping Serenity SCF)...")
             print(f"External orbital files: {configuration.external_orbital_files}")
-            # Copy external orbital files to the initial directory with correct system names
-            # Serenity reads from .scf.h5 files (HDF5 format), NOT .ScfOrb (ASCII)
-            # The .scf.h5 files contain MO_ENERGIES and MO_VECTORS datasets
-            initial_dir = serenity.settings.molcas_orbital_files[0]  # All systems use same initial dir
+            # Copy external orbital files to the initial directory with correct system names.
+            # Serenity reads from .scf.h5 files (HDF5 format), NOT .ScfOrb (ASCII).
+            initial_dir = serenity.settings.molcas_orbital_files[0]
             for i, (ext_orb_file, sys_name) in enumerate(zip(configuration.external_orbital_files,
                                                               configuration.system_names)):
-                # Determine the correct destination file based on the source file extension
-                # We support both .scf.h5 (preferred) and .ScfOrb files
                 if ext_orb_file.endswith('.scf.h5'):
                     dest_file = os.path.join(initial_dir, f"{sys_name}.scf.h5")
                 elif ext_orb_file.endswith('.ScfOrb'):
-                    # Also copy .ScfOrb for compatibility, but warn that .scf.h5 is preferred
                     dest_file = os.path.join(initial_dir, f"{sys_name}.ScfOrb")
                     print(f"  WARNING: Using .ScfOrb file. For eigenvalues to be read correctly, use .scf.h5 files.")
                 else:
-                    # Try to guess based on file existence
                     dest_file = os.path.join(initial_dir, f"{sys_name}.scf.h5")
                 print(f"  Copying {ext_orb_file} -> {dest_file}")
                 shutil.copy2(ext_orb_file, dest_file)
-            # Load the external orbitals from the copied HDF5 files
-            serenity.load_or_write_molcas_orbitals()
-            # Skip Serenity SCF - we use the external orbitals directly
-        else:
-            serenity.load_or_write_molcas_orbitals()
-            serenity.calculate()
+        # Load OpenMolcas orbitals into Serenity (no SCF). get_orbital_map() runs
+        # IBO localization + GDOS on these orbitals.
+        serenity.load_or_write_molcas_orbitals()
         orbital_map, unmappable_orbitals = serenity.get_orbital_map()
     names = serenity.settings.system_names
     print_orbital_map(orbital_map)
     serenity.load_or_write_molcas_orbitals(True)
+
+    # Re-point orbital_file at the IBO-localized copy written by Serenity.
+    # The external-orbital path left orbital_file on the raw external file (canonical
+    # MOs). All DMRG/RASSCF inputs must use the localized version in initial/.
+    if configuration.use_external_orbitals:
+        _initial_dir = FileHandler.get_project_path() + "/initial/"
+        for iface, _name in zip(interfaces, configuration.system_names):
+            _localized = os.path.join(_initial_dir, f"{_name}.scf.h5")
+            if os.path.exists(_localized):
+                iface.orbital_file = _localized
+                iface.hdf5_utils.read_hdf5(_localized)
 
     # Generate IBO distribution plot (IAO-constrained classification)
     try:
@@ -475,16 +477,19 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
         initial_valence_occupations[i] = init_occ
         initial_valence_indices[i] = init_idx
 
-    # Log per-geometry CAS selections before combining (for inspection/debugging)
-    os.makedirs(_dmrg_dir, exist_ok=True)
-    per_geom_log = open(os.path.join(_dmrg_dir, "per_geometry_cas_spaces"), "w")
+    # Per-geometry CAS summary block
+    print("*******************************************************************************************")
+    print("*                                                                                         *")
+    print("*                        Per-Geometry Active Space Selections                             *")
+    print("*                                                                                         *")
+    print("*******************************************************************************************")
+    col_w = max((len(nm) for nm in names), default=8) + 2
     for cas_idx, cas_occ, nm, wf in zip(cas_indices, cas_occupations, names, was_forced_list):
         n_e = sum(cas_occ) if cas_occ else 0
-        per_geom_log.write(f"system {nm}: CAS({n_e},{len(cas_idx)}) indices: {cas_idx}\n")
-        per_geom_log.write(f"system {nm}: occupation: {cas_occ}\n")
-        per_geom_log.write(f"system {nm}: force_cas: {wf}\n")
-        print(f"  per-geom CAS {nm}: CAS({n_e},{len(cas_idx)}){' [force_cas]' if wf else ''}")
-    per_geom_log.close()
+        cas_str = f"CAS({n_e},{len(cas_idx)})"
+        forced = "  [force_cas]" if wf else ""
+        print(f"  {nm:<{col_w}}  {cas_str}{forced}")
+    print()
 
     if configuration.save_per_geom_dmrgscf:
         print("*** Saving per-geometry DMRG h5 files (copy from dmrg/ to pergeom/) ***")
@@ -570,6 +575,7 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
                     active_space.remove(i)
                     occupations.remove(occupations[idx])
 
+    os.makedirs(_dmrg_dir, exist_ok=True)
     combined_file = open(os.path.join(_dmrg_dir, "combined_cas_spaces"), "w")
     for cas_index, cas_occ in zip(combined_indices, combined_occupations):
         print(f"combined cas indices: {cas_index}")

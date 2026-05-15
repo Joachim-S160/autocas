@@ -41,7 +41,6 @@ class Serenity(Interface):
 
         __slots__ = (
             "uhf",
-            "localisation_method",
             "alignment",
             "localize_virtuals",
             "read_and_write_to_molcas",
@@ -49,7 +48,6 @@ class Serenity(Interface):
             "partitioning_thresholds",
             "optimized_mapping",
             "xyz_files",
-            "skip_localization",
             "rydberg_energy_cutoff",
             "score_start",
             "score_end",
@@ -65,10 +63,6 @@ class Serenity(Interface):
             super().__init__(molecule=molecule, settings_dict=settings_dict)
             self.uhf: bool = False
             """ Run unrestricted """
-            self.localisation_method: str = "IBO"
-            """localisation method. Options are
-            PIPEK_MEZEY, BOYS, EDMINSTON_RUEDENBERG, IBO.
-            """
             self.alignment = True
             """Align orbitals for multiple structures"""
             self.localize_virtuals = True
@@ -83,8 +77,6 @@ class Serenity(Interface):
             """Optimize the first threshold of the direct orbital selection to give the best mapping"""
             self.xyz_files: List[str] = []
             """The list of xyz files"""
-            self.skip_localization: bool = False
-            """If true, the orbitals are not localized"""
             self.rydberg_energy_cutoff: float = -1.0
             """Rydberg energy cutoff in Hartree. -1.0 = auto-detect (0.5 s/p, 1.0 d-block)."""
             self.score_start = 5e-1
@@ -212,21 +204,19 @@ class Serenity(Interface):
 
         sys_zero = self.systems[0]
         loc_settings = spy.LocalizationTaskSettings()
-        loc_settings.locType = self.get_localization_method(self.settings.localisation_method)
+        loc_settings.locType = spy.ORBITAL_LOCALIZATION_ALGORITHMS.IBO
         loc_settings.splitValenceAndCore = True
         loc_settings.localizeVirtuals = self.settings.localize_virtuals
         loc_settings.replaceVirtuals = True
         loc_settings.rydbergEnergyCutoff = self.settings.rydberg_energy_cutoff
         loc_settings.iboMinaoBasis = self.settings.ibo_minao_basis
         loc_settings.allowZeroValenceVirtuals = self.settings.allow_zero_valence_virtuals
-        if not self.settings.skip_localization:
-            self.localize_orbitals(sys_zero, loc_settings)
+        self.localize_orbitals(sys_zero, loc_settings)
 
         fragments = self.build_fragments(sys_zero)
         for i_sys in range(len(self.systems) - 1):
             sys = self.systems[i_sys + 1]
-            if not self.settings.skip_localization:
-                self.localize_orbitals(sys, loc_settings, sys_zero)
+            self.localize_orbitals(sys, loc_settings, sys_zero)
             fragments += self.build_fragments(sys)
 
         if self.settings.read_and_write_to_molcas:
@@ -319,7 +309,7 @@ class Serenity(Interface):
             loc_settings.replaceVirtuals = False
         loc = spy.LocalizationTask(sys, [])
         loc.settings = loc_settings
-        loc.settings.locType = self.get_localization_method(self.settings.localisation_method)
+        loc.settings.locType = spy.ORBITAL_LOCALIZATION_ALGORITHMS.IBO
         loc.run()
 
     def build_fragments(self, sys):
@@ -375,17 +365,3 @@ class Serenity(Interface):
         gdos.run()
         return gdos.getOrbitalGroupIndices(), gdos.getUnmappableOrbitalGroupIndices()
 
-    def get_localization_method(self, label: str):
-        """Get the Serenity enum for the given keyword."""
-        import qcserenity.serenipy as spy
-        known_methods: dict = {
-            "IBO": spy.ORBITAL_LOCALIZATION_ALGORITHMS.IBO,
-            "PIPEK_MEZEY": spy.ORBITAL_LOCALIZATION_ALGORITHMS.PM,
-            "EDMINSTON_RUEDENBERG": spy.ORBITAL_LOCALIZATION_ALGORITHMS.ER,
-            "BOYS": spy.ORBITAL_LOCALIZATION_ALGORITHMS.FB
-        }
-        if label in known_methods:
-            return known_methods[label]
-
-        raise ValueError("Unknown orbital localization method. Known orbital localization methods are: "
-                         + str(known_methods.keys()))

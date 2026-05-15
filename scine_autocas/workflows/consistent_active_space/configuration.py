@@ -4,10 +4,26 @@ Copyright ETH Zurich, Department of Chemistry and Applied Biosciences, Reiher Gr
 See LICENSE.txt for details. """
 
 import os.path
+import sys
+import warnings
 from typing import List, Dict, Optional
 import yaml
 from scine_autocas.utils.defaults import Defaults
 from scine_autocas.io import FileHandler
+
+
+_OPEN_SHELL_WARNING_EMITTED = False
+
+
+def _warn_open_shell_once() -> None:
+    """Emit the open-shell-SCF experimental warning at most once per process."""
+    global _OPEN_SHELL_WARNING_EMITTED
+    if _OPEN_SHELL_WARNING_EMITTED:
+        return
+    _OPEN_SHELL_WARNING_EMITTED = True
+    msg = "Open-shell SCF (UHF) is experimental in autoCAS4HE; results have not been validated."
+    warnings.warn(msg, UserWarning, stacklevel=2)
+    print(f"[autoCAS] WARNING: {msg}", file=sys.stderr)
 
 
 class ConsistentActiveSpaceConfiguration:
@@ -28,12 +44,10 @@ class ConsistentActiveSpaceConfiguration:
         "project_name",
         "use_external_orbitals",
         "external_orbital_files",
-        "localization_method",
         "force_cas",
-        "skip_localization",
         "rasscf_sx_max_iter",
         "rasscf_level_shift",
-        "restart_from_dmrg",
+        "relativistic",
         "spin_multiplicity",
         "ibo_minao_basis",
         "save_per_geom_casscf",
@@ -112,15 +126,6 @@ class ConsistentActiveSpaceConfiguration:
             Paths to external orbital files (e.g., OpenMolcas .ScfOrb files) to load into Serenity.
             One file per system is required when use_external_orbitals is True.
         """
-        self.localization_method: str = "IBO"
-        """
-        str
-            The orbital localization method to use. Options are:
-            - "IBO" (default): Intrinsic Bond Orbitals
-            - "PIPEK_MEZEY": Pipek-Mezey localization
-            - "BOYS": Foster-Boys localization
-            - "EDMINSTON_RUEDENBERG": Edmiston-Ruedenberg localization
-        """
         self.force_cas: bool = False
         """
         bool
@@ -128,13 +133,6 @@ class ConsistentActiveSpaceConfiguration:
             indicate a single-reference system (no multireference character).
             Useful for systems where the initial DMRG gives low entropies but an
             active space is still desired.
-        """
-        self.skip_localization: bool = False
-        """
-        bool
-            If true, skip orbital localization entirely. Useful for debugging or when
-            localization causes issues (e.g., NaN orbital coefficients with certain
-            localization methods for heavy elements).
         """
         self.rasscf_sx_max_iter: Optional[int] = None
         """
@@ -152,13 +150,11 @@ class ConsistentActiveSpaceConfiguration:
             a good starting point and 0.5 causes oscillation (e.g. near ionic/covalent
             crossing such as PbO at R=7.00 Ang).
         """
-        self.restart_from_dmrg: bool = False
+        self.relativistic: str = Defaults.Interface.relativistic
         """
-        bool
-            If True, skip orbital preparation, IBO localization, DMRG entropy selection,
-            and CAS combination. Read combined_cas_spaces from the existing dmrg/ directory
-            and run only the final CASSCF. Requires a previous complete run up to DMRG.
-            Use with rasscf_level_shift to change convergence parameters on restart.
+        str
+            Relativistic Hamiltonian written in OpenMolcas &SEWARD. Default "R02O" (second-order
+            Douglas-Kroll-Hess), required for heavy elements. Empty string or "NONE" disables.
         """
         self.spin_multiplicity: int = 1
         """
@@ -269,6 +265,8 @@ class ConsistentActiveSpaceConfiguration:
             for p in config.external_orbital_files:
                 if not os.path.isfile(p):
                     raise FileNotFoundError(f"The external orbital file {p} does not exist.")
+        if config.spin_multiplicity != 1:
+            _warn_open_shell_once()
 
     @classmethod
     def from_options(cls, options, xyz_files: List[str]):
@@ -301,18 +299,14 @@ class ConsistentActiveSpaceConfiguration:
         if options.external_orbital_files:
             config.external_orbital_files = [os.path.abspath(p) if p[0] != "/" else p
                                               for p in options.external_orbital_files.split(",")]
-        # Handle localization method option
-        config.localization_method = options.localization_method
         # Handle force_cas option
         config.force_cas = options.force_cas
-        # Handle skip_localization option
-        config.skip_localization = options.skip_localization
         # Handle rasscf_sx_max_iter override (None = use Molcas.Settings default)
         config.rasscf_sx_max_iter = options.rasscf_sx_max_iter
         # Handle rasscf_level_shift override (None = use Molcas.Settings default)
         config.rasscf_level_shift = options.rasscf_level_shift
-        # Handle restart_from_dmrg flag
-        config.restart_from_dmrg = options.restart_from_dmrg
+        # Relativistic Hamiltonian (default R02O)
+        config.relativistic = options.relativistic
         # Handle spin multiplicity
         config.spin_multiplicity = options.spin_multiplicity
         # Handle IBO MINAO basis variant
@@ -359,25 +353,17 @@ class ConsistentActiveSpaceConfiguration:
         Dict
             The settings for the Serenity interface.
         """
-        # Virtual localization is only supported for IBO/IAO in Serenity
-        # For PM, FB, ER we must disable it
-        localize_virtuals = self.localization_method in ["IBO", "IAO"]
-        if not localize_virtuals:
-            print(f"  Note: Virtual localization disabled for {self.localization_method} "
-                  "(only supported for IBO/IAO)")
         settings = {
             "Interface": {
-                # UHF only when Serenity runs its own SCF. For external (ROHF) orbitals,
+                # UHF only when Serenity runs its own SCF. For external orbitals,
                 # keep restricted IBO throughout — restricted→restricted write-back is consistent.
                 "uhf": self.spin_multiplicity != 1 and not self.use_external_orbitals,
-                "localisation_method": self.localization_method,
                 "alignment": True,
-                "localize_virtuals": localize_virtuals,
+                "localize_virtuals": True,
                 "optimized_mapping": True,
                 "work_dir": "serenity/",
                 "basis_set": self.basis_set,
                 "score_start": 1.0,
-                "skip_localization": self.skip_localization,
                 "system_names": self.system_names,
                 "molcas_orbital_files": [FileHandler.get_project_path() + "/initial/" for _ in self.system_names]
             }

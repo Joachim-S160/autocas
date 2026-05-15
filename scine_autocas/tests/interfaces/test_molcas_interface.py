@@ -239,10 +239,10 @@ class TestMolcasClasses(unittest.TestCase):
                     BASIS = cc-pvdz\n
                     GROUP = C1\n\n
                    &SEWARD\n\n
-                    CHOLesky\n\n
+                    CHOLesky\n
+                    Relativistic = R02O\n\n
                    &SCF\n SPIN   = 1\n
                    CHARGE = 0\n
-                   CHOLesky\n
                    &LOCALISATION\n
                     OCCUpied
                     PIPEk-Mezey
@@ -408,11 +408,11 @@ class TestMolcasClasses(unittest.TestCase):
                     BASIS = cc-pvdz\n
                     GROUP = C1\n\n
                    &SEWARD\n\n
-                    CHOLesky\n\n
+                    CHOLesky\n
+                    Relativistic = R02O\n\n
                    &SCF\n
                     SPIN   = 1\n
                     CHARGE = 0\n
-                    CHOLesky\n
                 """,
             ),
         )
@@ -433,6 +433,30 @@ class TestMolcasClasses(unittest.TestCase):
             ),
         )
         dmrg_content.close()
+
+    def test_input_handler_skip_scf_block(self):
+        """SCF-less init mode: &GATEWAY + &SEWARD only, no &SCF, no &LOCALISATION."""
+        input_handler = InputHandler()
+        molecule = Molecule(atom_list=["H", "H"])
+        molecule.xyz_file = "blubblub.xyz"
+        settings = Molcas.Settings(molecule=molecule)
+        settings.skip_scf_block = True
+        settings.orbital_localisation = True
+        settings.uhf = True
+
+        initial_input_file = self.dummy_project_dir + "/test_skip_scf.inp"
+        input_handler.write_input(settings, initial_input_file)
+
+        with open(initial_input_file, encoding="utf-8") as fh:
+            content = fh.read()
+        self.assertIn("&GATEWAY", content)
+        self.assertIn("&SEWARD", content)
+        self.assertIn("Relativistic = R02O", content)
+        self.assertIn("CHOLesky", content)
+        self.assertNotIn("&SCF", content)
+        self.assertNotIn("&LOCALISATION", content)
+        self.assertNotIn("uhf", content)
+        self.assertNotIn("CHARGE", content)
 
     def test_molcas(self):
         try:
