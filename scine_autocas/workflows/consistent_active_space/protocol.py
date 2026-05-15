@@ -355,6 +355,17 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
     print_orbital_map(orbital_map)
     serenity.load_or_write_molcas_orbitals(True)
 
+    # Re-point orbital_file at the IBO-localized copy written by Serenity.
+    # The external-orbital path left orbital_file on the raw external file (canonical
+    # MOs). All DMRG/RASSCF inputs must use the localized version in initial/.
+    if configuration.use_external_orbitals:
+        _initial_dir = FileHandler.get_project_path() + "/initial/"
+        for iface, _name in zip(interfaces, configuration.system_names):
+            _localized = os.path.join(_initial_dir, f"{_name}.scf.h5")
+            if os.path.exists(_localized):
+                iface.orbital_file = _localized
+                iface.hdf5_utils.read_hdf5(_localized)
+
     # Generate IBO distribution plot (IAO-constrained classification)
     try:
         plot_ibo_distribution(serenity)
