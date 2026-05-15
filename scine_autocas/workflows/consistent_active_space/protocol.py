@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import traceback
 from pathlib import Path
 from typing import List, Tuple
@@ -17,7 +18,8 @@ from scine_autocas.cas_selection.cas_combination import combine_active_spaces
 from scine_autocas.interfaces import Molcas, Serenity
 from scine_autocas.utils.defaults import CasMethods, PostCasMethods
 from scine_autocas.workflows.consistent_active_space.prepare_orbitals import (
-    load_orbitals_from_serenity, construct_molecules, print_orbital_map
+    load_orbitals_from_serenity, construct_molecules, print_orbital_map,
+    setup_molcas_and_molecule,
 )
 from scine_autocas.utils.defaults import Defaults
 from scine_autocas.workflows.consistent_active_space.run_autocas import run_autocas
@@ -312,18 +314,79 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
     # Generate the Molcas orbital files.
     # When external orbitals are provided, pass them so the IBO pymolcas step is skipped.
     _ext_orbs = configuration.external_orbital_files if configuration.use_external_orbitals else None
-    interfaces, molecules = construct_molecules(configuration, external_orbital_files=_ext_orbs)
 
-    # Apply CLI overrides to molcas settings
-    if configuration.rasscf_sx_max_iter is not None:
+    _t_init_start = time.perf_counter()
+    if configuration.n_workers > 1 and len(configuration.xyz_files) > 1:
+        _base_scratch = FileHandler.get_project_path() + "/scratch"
+
+        def _make_init_job(xyz, name, basis_set, spin_mult, ext_orb, relativistic, base_scratch):
+            worker_scratch = os.path.join(base_scratch, f"init_{name}")
+            def job():
+                os.makedirs(worker_scratch, exist_ok=True)
+                molcas, molecule = setup_molcas_and_molecule(
+                    xyz, name, basis_set, spin_mult, ext_orb, relativistic,
+                    skip_calculate=True,
+                )
+                molcas.environment.molcas_scratch_dir = worker_scratch
+                molcas.calculate()
+                if ext_orb is not None and os.path.exists(ext_orb):
+                    molcas.orbital_file = os.path.abspath(ext_orb)
+                    molcas.hdf5_utils.read_hdf5(molcas.orbital_file)
+                    print(f"  [external orbitals] {name}: SEWARD done; "
+                          f"using {os.path.basename(ext_orb)}")
+                # Propagate prefixed files (RunFile, OneInt, etc.) from the isolated
+                # init WorkDir back to base_scratch so _isolate_worker_scratch can
+                # find them when preparing the DMRG worker scratch dirs.
+                prefix = name + "."
+                os.makedirs(base_scratch, exist_ok=True)
+                for fname in os.listdir(worker_scratch):
+                    if fname.startswith(prefix):
+                        src = os.path.join(worker_scratch, fname)
+                        dst = os.path.join(base_scratch, fname)
+                        if not os.path.exists(dst):
+                            shutil.copy2(src, dst)
+                # Reset scratch to base so downstream DMRG workers derive their own
+                # subdirs from the same root as the serial path would.
+                molcas.environment.molcas_scratch_dir = base_scratch
+                return molcas, molecule
+            return job
+
+        _init_jobs = [
+            _make_init_job(
+                configuration.xyz_files[i],
+                configuration.system_names[i],
+                configuration.basis_set,
+                configuration.spin_multiplicity,
+                _ext_orbs[i] if _ext_orbs else None,
+                configuration.relativistic,
+                _base_scratch,
+            )
+            for i in range(len(configuration.xyz_files))
+        ]
+        _init_results = _run_parallel(_init_jobs, configuration.n_workers)
+        interfaces = [r[0] for r in _init_results]
+        molecules  = [r[1] for r in _init_results]
         for molcas in interfaces:
-            molcas.settings.rasscf_sx_max_iter = configuration.rasscf_sx_max_iter
-    if configuration.rasscf_level_shift is not None:
+            if configuration.rasscf_sx_max_iter is not None:
+                molcas.settings.rasscf_sx_max_iter = configuration.rasscf_sx_max_iter
+            if configuration.rasscf_level_shift is not None:
+                molcas.settings.rasscf_level_shift = configuration.rasscf_level_shift
+            molcas.settings.relativistic = configuration.relativistic
+    else:
+        interfaces, molecules = construct_molecules(configuration, external_orbital_files=_ext_orbs)
+        # Apply CLI overrides to molcas settings
+        if configuration.rasscf_sx_max_iter is not None:
+            for molcas in interfaces:
+                molcas.settings.rasscf_sx_max_iter = configuration.rasscf_sx_max_iter
+        if configuration.rasscf_level_shift is not None:
+            for molcas in interfaces:
+                molcas.settings.rasscf_level_shift = configuration.rasscf_level_shift
+        # Propagate relativistic Hamiltonian (default R02O) to all molcas interfaces.
         for molcas in interfaces:
-            molcas.settings.rasscf_level_shift = configuration.rasscf_level_shift
-    # Propagate relativistic Hamiltonian (default R02O) to all molcas interfaces.
-    for molcas in interfaces:
-        molcas.settings.relativistic = configuration.relativistic
+            molcas.settings.relativistic = configuration.relativistic
+    _t_init_end = time.perf_counter()
+    print(f"[timing] init (GATEWAY+SEWARD+SCF): {_t_init_end - _t_init_start:.1f} s "
+          f"({configuration.n_workers} worker(s))")
 
     # Serenity does NOT run its own SCF. The OpenMolcas initial pass already produced
     # converged orbitals (or the user supplied external orbitals); Serenity's job is only

@@ -15,7 +15,8 @@ from scine_autocas.utils.defaults import Defaults
 def setup_molcas_and_molecule(xyz_file: str, name: str, basis_set: str,
                                spin_multiplicity: int = 1,
                                external_orbital_file: Optional[str] = None,
-                               relativistic: str = Defaults.Interface.relativistic) -> Tuple[Molcas, Molecule]:
+                               relativistic: str = Defaults.Interface.relativistic,
+                               skip_calculate: bool = False) -> Tuple[Molcas, Molecule]:
     """
     Setup Molcas interface and molecule from an XYZ file.
 
@@ -36,6 +37,10 @@ def setup_molcas_and_molecule(xyz_file: str, name: str, basis_set: str,
     relativistic: str
         Relativistic Hamiltonian string passed to &SEWARD (default "R02O" for DKH2).
         Pass empty string or "NONE" to disable.
+    skip_calculate: bool
+        When True, configure the Molcas object but do NOT call calculate(). The caller
+        is responsible for setting scratch isolation, calling calculate(), and
+        post-processing orbital_file / hdf5_utils. Used by the parallel init path.
 
     Returns
     -------
@@ -50,6 +55,12 @@ def setup_molcas_and_molecule(xyz_file: str, name: str, basis_set: str,
     molcas.settings.dmrg_bond_dimension = Defaults.Interface.init_dmrg_bond_dimension
     molcas.settings.dmrg_sweeps = Defaults.Interface.init_dmrg_sweeps
     molcas.settings.relativistic = relativistic
+
+    if skip_calculate:
+        # Caller handles scratch isolation, calculate(), and post-processing.
+        if external_orbital_file is not None and os.path.exists(external_orbital_file):
+            molcas.settings.skip_scf_block = True  # GATEWAY+SEWARD only when called
+        return molcas, molecule
 
     if external_orbital_file is not None and os.path.exists(external_orbital_file):
         # SCF-less init: GATEWAY + SEWARD only — DMRG/RASSCF reads user orbitals via FILEORB.
