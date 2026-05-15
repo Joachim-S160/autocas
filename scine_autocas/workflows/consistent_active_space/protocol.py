@@ -24,6 +24,25 @@ from scine_autocas.workflows.consistent_active_space.run_autocas import run_auto
 from scine_autocas.io import FileHandler
 
 
+def _detect_element_from_path(path: str) -> str:
+    """Detect element symbol from a file path like n2_0.xyz, po2_0.xyz, system_0.xyz."""
+    import re
+    stem = Path(path).stem.lower()
+    valid_elements = {
+        'H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 'Na', 'Mg', 'Al', 'Si',
+        'P', 'S', 'Cl', 'Ar', 'K', 'Ca', 'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni',
+        'Cu', 'Zn', 'Ga', 'Ge', 'As', 'Se', 'Br', 'Kr', 'Rb', 'Sr', 'Y', 'Zr', 'Nb',
+        'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd', 'In', 'Sn', 'Sb', 'Te', 'I', 'Xe',
+        'Cs', 'Ba', 'La', 'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt', 'Au', 'Hg', 'Tl',
+        'Pb', 'Bi', 'Po', 'At', 'Rn',
+    }
+    for pat in [r'^([a-z]{1,2})2[_\d]', r'^([a-z]{1,2})[_\d]', r'^([a-z]{1,2})\d']:
+        m = re.match(pat, stem)
+        if m and m.group(1).capitalize() in valid_elements:
+            return m.group(1)
+    return None
+
+
 def plot_ibo_distribution(serenity: Serenity) -> None:
     """
     Generate IBO orbital distribution plots using IAO-constrained classification.
@@ -40,11 +59,15 @@ def plot_ibo_distribution(serenity: Serenity) -> None:
     if not FileHandler.check_project_dir_exists():
         return
 
-    # Get first system's HDF5 file
     sys_zero = serenity.systems[0]
     sys_name = sys_zero.getSystemName()
-    sys_path = sys_zero.getSettings().path
-    h5file = Path(sys_path) / sys_name / f"{sys_name}.scf.h5"
+
+    # Use the canonical initial orbital directory — always autocas_project/initial/
+    # regardless of Serenity workflow type.  molcas_orbital_files[0] also points here
+    # for the standard workflow, but FileHandler is authoritative and doesn't require
+    # the settings attribute to be populated.
+    initial_dir = Path(FileHandler.get_project_path()) / FileHandler.DirectoryNames.initial_orbs
+    h5file = initial_dir / f"{sys_name}.scf.h5"
 
     if not h5file.exists():
         print(f"[WARNING] HDF5 file not found for IBO plot: {h5file}")
@@ -56,14 +79,27 @@ def plot_ibo_distribution(serenity: Serenity) -> None:
         print(f"[WARNING] IBO distribution script not found: {script_path}")
         return
 
+    # Detect element for auto-labelling: try the geometry xyz file first, then the h5 filename
+    element_args = []
+    geometry = sys_zero.getSettings().geometry
+    elem = _detect_element_from_path(geometry) if geometry else None
+    if elem is None:
+        elem = _detect_element_from_path(str(h5file))
+    if elem:
+        element_args = ["--element", elem]
+    else:
+        print("[WARNING] IBO plot: could not detect element — plot labels may be missing")
+
     print("Plotting IBO orbital distribution (IAO-constrained)")
     try:
         result = subprocess.run(
-            [sys.executable, str(script_path), str(h5file)],
+            [sys.executable, str(script_path), str(h5file)] + element_args,
             cwd=str(h5file.parent), check=False, capture_output=True, text=True
         )
         if result.returncode != 0:
             print(f"[WARNING] IBO plot script error: {result.stderr[:200]}")
+        else:
+            print(result.stdout.strip())
 
         # Copy generated plots to project directory
         project_path = FileHandler.get_project_path()
