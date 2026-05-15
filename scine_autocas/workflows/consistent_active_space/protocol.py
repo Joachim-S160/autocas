@@ -477,16 +477,19 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
         initial_valence_occupations[i] = init_occ
         initial_valence_indices[i] = init_idx
 
-    # Log per-geometry CAS selections before combining (for inspection/debugging)
-    os.makedirs(_dmrg_dir, exist_ok=True)
-    per_geom_log = open(os.path.join(_dmrg_dir, "per_geometry_cas_spaces"), "w")
+    # Per-geometry CAS summary block
+    print("*******************************************************************************************")
+    print("*                                                                                         *")
+    print("*                        Per-Geometry Active Space Selections                             *")
+    print("*                                                                                         *")
+    print("*******************************************************************************************")
+    col_w = max((len(nm) for nm in names), default=8) + 2
     for cas_idx, cas_occ, nm, wf in zip(cas_indices, cas_occupations, names, was_forced_list):
         n_e = sum(cas_occ) if cas_occ else 0
-        per_geom_log.write(f"system {nm}: CAS({n_e},{len(cas_idx)}) indices: {cas_idx}\n")
-        per_geom_log.write(f"system {nm}: occupation: {cas_occ}\n")
-        per_geom_log.write(f"system {nm}: force_cas: {wf}\n")
-        print(f"  per-geom CAS {nm}: CAS({n_e},{len(cas_idx)}){' [force_cas]' if wf else ''}")
-    per_geom_log.close()
+        cas_str = f"CAS({n_e},{len(cas_idx)})"
+        forced = "  [force_cas]" if wf else ""
+        print(f"  {nm:<{col_w}}  {cas_str}{forced}")
+    print()
 
     if configuration.save_per_geom_dmrgscf:
         print("*** Saving per-geometry DMRG h5 files (copy from dmrg/ to pergeom/) ***")
@@ -572,6 +575,7 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
                     active_space.remove(i)
                     occupations.remove(occupations[idx])
 
+    os.makedirs(_dmrg_dir, exist_ok=True)
     combined_file = open(os.path.join(_dmrg_dir, "combined_cas_spaces"), "w")
     for cas_index, cas_occ in zip(combined_indices, combined_occupations):
         print(f"combined cas indices: {cas_index}")
