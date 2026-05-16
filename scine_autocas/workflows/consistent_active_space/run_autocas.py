@@ -152,7 +152,7 @@ def _ensure_somos_included(cas_occ: List[int], cas_idx: List[int],
 
 
 def run_autocas(molecule: Molecule, molcas: Molcas, name: str, large_active_space: bool,
-                force_cas: bool = False) -> Tuple[List[int], List[int], bool, List[int], List[int]]:
+                force_cas: bool = False, plateau_values: int = 12) -> Tuple[List[int], List[int], bool, List[int], List[int]]:
     """
     Run the autoCAS workflow.
 
@@ -179,7 +179,7 @@ def run_autocas(molecule: Molecule, molcas: Molcas, name: str, large_active_spac
     """
     # initialize autoCAS
     autocas = Autocas(molecule)
-    autocas.plateau_values = 12
+    autocas.plateau_values = plateau_values
     # make initial active space and evaluate initial DMRG calculation
     occ_initial, index_initial = autocas.make_initial_active_space()
 

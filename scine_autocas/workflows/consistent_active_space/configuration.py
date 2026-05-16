@@ -54,6 +54,7 @@ class ConsistentActiveSpaceConfiguration:
         "save_per_geom_dmrgscf",
         "n_workers",
         "allow_zero_valence_virtuals",
+        "plateau_values",
     )
 
     def __init__(self):
@@ -209,6 +210,15 @@ class ConsistentActiveSpaceConfiguration:
             per-geom CASSCF, final CASSCF). Default 1 = serial. Uses forked subprocesses
             so each worker has its own CWD and memory — safe for os.chdir()-heavy code.
         """
+        self.plateau_values: int = 12
+        """
+        int
+            Number of consecutive threshold steps (step size 0.01) required to declare an
+            entropy plateau. Lower values require a shorter flat region → potentially larger
+            per-geometry CAS → larger union CAS. Default 12 (consistent-CAS protocol
+            override of the base autoCAS default of 10). Use 8 or 6 to test larger CAS
+            at dissociated geometries.
+        """
 
     def write_yaml_file(self, file_name: str = "consistent_cas.configuration.yaml") -> str:
         """
@@ -316,6 +326,7 @@ class ConsistentActiveSpaceConfiguration:
         config.save_per_geom_dmrgscf = options.save_per_geom_dmrgscf
         config.n_workers = options.n_workers
         config.allow_zero_valence_virtuals = options.allow_zero_valence_virtuals
+        config.plateau_values = options.plateau_values
         ConsistentActiveSpaceConfiguration.input_sanity_checks(config)
         config.base_load_path = os.path.join(*config.xyz_files[0].split("/")[:-1])  # type: ignore
         return config

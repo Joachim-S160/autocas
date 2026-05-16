@@ -268,6 +268,12 @@ def run_from_command_line() -> None:
                            "per-geom CASSCF, final CASSCF). Default: 1 (serial). "
                            "Uses forked subprocesses — safe for os.chdir()-heavy code. "
                            "Set to the number of available CPU cores for maximum throughput.")
+    parser.add_option("--plateau-values", dest="plateau_values", default=12, type="int",
+                      help="Number of consecutive threshold steps (of 0.01 each) required to "
+                           "declare an entropy plateau. Lower values → shorter plateau needed → "
+                           "potentially larger per-geometry CAS → larger union CAS. "
+                           "Default 12 (consistent-CAS protocol). Base autoCAS default is 10. "
+                           "Use 8 or 6 to test larger CAS at dissociated geometries (Plan 2).")
     (options, args) = parser.parse_args()
     if options.yaml_file:
         if len(args) > 0:
@@ -447,7 +453,7 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
     print(f"Running DMRG entropy for {len(configuration.autocas_indices)} geometries "
           f"({configuration.n_workers} worker(s))")
 
-    def _make_dmrg_job(mol, iface, nm, large_cas, force):
+    def _make_dmrg_job(mol, iface, nm, large_cas, force, plateau_vals):
         base_scratch = iface.environment.molcas_scratch_dir
         def job():
             worker_scratch = os.path.join(base_scratch, iface.project_name)
@@ -455,13 +461,14 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
             iface.environment.molcas_scratch_dir = worker_scratch
             iface.set_initial_cas_state(False)
             cas_occ, cas_idx, was_forced, init_occ, init_idx = run_autocas(
-                mol, iface, nm, large_cas, force)
+                mol, iface, nm, large_cas, force, plateau_vals)
             return cas_occ, cas_idx, iface.orbital_file, was_forced, init_occ, init_idx
         return job
 
     dmrg_jobs = [
         _make_dmrg_job(molecules[i], interfaces[i], names[i],
-                       configuration.large_active_space, configuration.force_cas)
+                       configuration.large_active_space, configuration.force_cas,
+                       configuration.plateau_values)
         for i in configuration.autocas_indices
     ]
     dmrg_results = _run_parallel(dmrg_jobs, configuration.n_workers)
