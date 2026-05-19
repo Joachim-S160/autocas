@@ -366,9 +366,7 @@ class ConsistentActiveSpaceConfiguration:
         """
         settings = {
             "Interface": {
-                # UHF only when Serenity runs its own SCF. For external orbitals,
-                # keep restricted IBO throughout — restricted→restricted write-back is consistent.
-                "uhf": self.spin_multiplicity != 1 and not self.use_external_orbitals,
+                "uhf": self.spin_multiplicity != 1,
                 "alignment": True,
                 "localize_virtuals": True,
                 "optimized_mapping": True,

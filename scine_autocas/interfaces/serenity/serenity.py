@@ -138,6 +138,8 @@ class Serenity(Interface):
                 settings.spin = molecules[0].spin_multiplicity - 1
                 settings.charge = molecules[0].charge
                 settings.geometry = xyz_file
+                if self.settings.uhf:
+                    settings.scfMode = spy.SCF_MODES.UNRESTRICTED
                 sys = spy.System(settings)
                 self.systems.append(sys)
             self.molecules = molecules
@@ -150,6 +152,8 @@ class Serenity(Interface):
                 settings.load = path
                 settings.name = name
                 settings.path = settings_dict["Interface"]["work_dir"]
+                if settings_dict["Interface"].get("uhf", False):
+                    settings.scfMode = spy.SCF_MODES.UNRESTRICTED
                 sys = spy.System(settings)
                 self.systems.append(sys)
                 xyz_file_name = os.path.join(path, name, name + ".xyz")
@@ -248,9 +252,7 @@ class Serenity(Interface):
             raise ValueError("Fewer loading paths for molcas orbitals than systems.")
         for i_sys, sys in enumerate(self.systems):
             loading_path = self.settings.molcas_orbital_files[i_sys]
-            # Reading: always use restricted reader — initial/external files come from RHF/ROHF.
-            # Writing: use unrestricted task when uhf=True to write back IBO-localized UHF orbitals.
-            if self.settings.uhf and write:
+            if self.settings.uhf:
                 read = spy.OrbitalsIOTask_U(sys)
             else:
                 read = spy.OrbitalsIOTask_R(sys)
@@ -352,7 +354,10 @@ class Serenity(Interface):
             The list of mappable orbital groups (vide supra), the list of unmappable orbital groups.
         """
         import qcserenity.serenipy as spy
-        gdos = spy.GeneralizedDOSTask_R(self.systems, fragments)
+        if self.settings.uhf:
+            gdos = spy.GeneralizedDOSTask_U(self.systems, fragments)
+        else:
+            gdos = spy.GeneralizedDOSTask_R(self.systems, fragments)
         gdos.settings.similarityLocThreshold = self.settings.partitioning_thresholds
         gdos.settings.similarityKinEnergyThreshold = self.settings.partitioning_thresholds
         gdos.settings.mapVirtuals = self.settings.localize_virtuals
@@ -363,5 +368,7 @@ class Serenity(Interface):
         gdos.settings.checkDegeneracies = True
         gdos.settings.writeGroupsToFile = self.settings.write_orbital_map_file
         gdos.run()
+        if self.settings.uhf:
+            return gdos.getOrbitalGroupIndicesAlpha(), gdos.getUnmappableOrbitalGroupIndicesAlpha()
         return gdos.getOrbitalGroupIndices(), gdos.getUnmappableOrbitalGroupIndices()
 
