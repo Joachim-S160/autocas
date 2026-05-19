@@ -138,7 +138,7 @@ class ActiveSpace:
         ValueError
             In case s1 entropies has more or less entries than orbitals in CAS.
         """
-        print(f"s1 in active space: {s1_entropies}")
+        print(f"s1 in active space (indices {self._indices}): {s1_entropies}")
         if len(s1_entropies) != len(self._occupation):
             raise ValueError("number of entropy values does not match nummber of orbitals")
         self._s1_entropies = s1_entropies
