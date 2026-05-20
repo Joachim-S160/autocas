@@ -321,8 +321,8 @@ class ActiveSpaceHandler:
         else:
             print("Excluded orbitals with:")
             print(f"indices:    {excluded_orb_indices}")
-            print(f"occupation: {excluded_orb_indices}")
-            print(f"entropies:  {excluded_orb_indices}")
+            print(f"occupation: {excluded_orb_occ}")
+            print(f"entropies:  {excluded_s1}")
             self._successfully_excluded = True
             print("Successfully excluded orbitals with low single orbital entropy")
 

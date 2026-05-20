@@ -195,6 +195,41 @@ class TestActiveSpaceHandler(unittest.TestCase):
         self.assertEqual(cas_handler._current_cas.get_occupation(), [2, 2, 2, 0, 0, 0])
         self.assertEqual(cas_handler._current_cas.get_indices(), [4, 5, 6, 7, 8, 9])
 
+    def test_exclude_orbitals_print_output(self):
+        """occupation: and entropies: lines must print their own values, not indices."""
+        from unittest.mock import patch, call
+        cas_handler = ActiveSpaceHandler(self.molecule_2)
+        cas_handler.custom_valence_cas(self.custom_occ, self.custom_inidices)
+        cas_handler.store_valence_s1_entropies(self.custom_s1)
+
+        # custom_s1 positions 0 and 10 have s1=0.0 < threshold 0.1 → excluded
+        expected_excl_occ = [self.custom_occ[0], self.custom_occ[10]]      # [2, 0]
+        expected_excl_s1 = [self.custom_s1[0], self.custom_s1[10]]         # [0.0, 0.0]
+        expected_excl_idx = [self.custom_inidices[0], self.custom_inidices[10]]  # [0, 10]
+
+        with patch("builtins.print") as mock_print:
+            cas_handler.exclude_orbitals(self.diagnostics)
+
+        printed_lines = {str(c.args[0]): True for c in mock_print.call_args_list if c.args}
+
+        occ_line = next((str(c.args[0]) for c in mock_print.call_args_list
+                         if c.args and "occupation:" in str(c.args[0])), None)
+        ent_line = next((str(c.args[0]) for c in mock_print.call_args_list
+                         if c.args and "entropies:" in str(c.args[0])), None)
+
+        self.assertIsNotNone(occ_line, "No 'occupation:' line printed")
+        self.assertIsNotNone(ent_line, "No 'entropies:' line printed")
+
+        # occupation line must contain occupation values, not orbital indices
+        self.assertIn(str(expected_excl_occ[0]), occ_line,
+                      f"occupation: line should contain {expected_excl_occ[0]}, got: {occ_line}")
+        self.assertNotIn(str(expected_excl_idx), occ_line,
+                         f"occupation: line must not equal the indices list, got: {occ_line}")
+
+        # entropies line must contain entropy values, not orbital indices
+        self.assertIn(str(expected_excl_s1[0]), ent_line,
+                      f"entropies: line should contain {expected_excl_s1[0]}, got: {ent_line}")
+
 
 if __name__ == "__main__":
     unittest.main()

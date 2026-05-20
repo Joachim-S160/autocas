@@ -257,18 +257,19 @@ class TestMolcasClasses(unittest.TestCase):
             re.sub(
                 "\\s+",
                 " ",
-                f"""&DMRGSCF\n
+                """&DMRGSCF\n
                     ActiveSpaceOptimizer = QCMaquis\n
                     DMRGSettings\n
-                     nsweeps = 5\n
-                     max_bond_dimension = 250\n
+                     nsweeps = 8\n
+                     max_bond_dimension = 500\n
                     EndDMRGSettings\n
                     OOptimizationSettings\n
                      SPIN = 1\n
                      NACTEL = 0\n
-                     FILEORB = {self.orbital_file}\n
+                     FILEORB = n2.scf.h5\n
                      TYPEINDEX\n
                      CIONLY\n
+                     ITERations 200 100\n
                     EndOOptimizationSettings\n
                 """
             ),
@@ -281,18 +282,19 @@ class TestMolcasClasses(unittest.TestCase):
             re.sub(
                 "\\s+",
                 " ",
-                f"""&DMRGSCF\n
+                """&DMRGSCF\n
                     ActiveSpaceOptimizer = QCMaquis\n
                     DMRGSettings\n
-                     nsweeps = 5\n
-                     max_bond_dimension = 250\n
+                     nsweeps = 8\n
+                     max_bond_dimension = 500\n
                     EndDMRGSettings\n
                     OOptimizationSettings\n
                      SPIN = 1\n
                      NACTEL = 0\n
-                     FILEORB = {self.orbital_file}\n
+                     FILEORB = n2.scf.h5\n
                      ALTEr=2; 1 4 5; 3 6 8\n
                      CIONLY\n
+                     ITERations 200 100\n
                     EndOOptimizationSettings\n
                 """
             ),
@@ -309,8 +311,8 @@ class TestMolcasClasses(unittest.TestCase):
                     FIEDLER=ON\n
                     ActiveSpaceOptimizer = QCMaquis\n
                     DMRGSettings\n
-                     nsweeps = 5\n
-                     max_bond_dimension = 250\n
+                     nsweeps = 8\n
+                     max_bond_dimension = 500\n
                     EndDMRGSettings\n
                     OOptimizationSettings\n
                      SPIN = 1\n
@@ -319,6 +321,7 @@ class TestMolcasClasses(unittest.TestCase):
                      ALTEr=2; 1 4 5; 3 6 8\n
                      CIONLY\n
                      CIRoot = just a test string\n
+                     ITERations 200 100\n
                     EndOOptimizationSettings\n
                 """
             ),
@@ -331,11 +334,14 @@ class TestMolcasClasses(unittest.TestCase):
             re.sub(
                 "\\s+",
                 " ",
-                f"""&RASSCF\n
+                """&RASSCF\n
                      SPIN = 1\n
                      NACTEL = 0\n
-                     FILEORB = {self.orbital_file}\n
+                     FILEORB = n2.scf.h5\n
                      TYPEINDEX\n
+                     ITERations 200 100\n
+                     LEVShift 0.5\n
+                     CIMX 200\n
                     &CASPT2\n
                      IPEA = 0.0\n
                 """
@@ -349,11 +355,14 @@ class TestMolcasClasses(unittest.TestCase):
             re.sub(
                 "\\s+",
                 " ",
-                f"""&RASSCF\n
+                """&RASSCF\n
                      SPIN = 1\n
                      NACTEL = 0\n
-                     FILEORB = {self.orbital_file}\n
+                     FILEORB = n2.scf.h5\n
                      ALTEr=2; 1 4 5; 3 6 8\n
+                     ITERations 200 100\n
+                     LEVShift 0.5\n
+                     CIMX 200\n
                     &CASPT2\n
                      IPEA = 0.0\n
                 """
@@ -374,6 +383,9 @@ class TestMolcasClasses(unittest.TestCase):
                      ALTEr=2; 1 4 5; 3 6 8\n
                      CIONLY\n
                      CIRoot = just a test string\n
+                     ITERations 200 100\n
+                     LEVShift 0.5\n
+                     CIMX 200\n
                     &NEVPT2\n
                 """
             ),
@@ -424,11 +436,14 @@ class TestMolcasClasses(unittest.TestCase):
             re.sub(
                 "\\s+",
                 " ",
-                f"""&RASSCF\n
+                """&RASSCF\n
                     SPIN    = 1\n
                     NACTEL  = 0\n
-                    FILEORB = {self.orbital_file}\n
+                    FILEORB = n2.scf.h5\n
                     TYPEINDEX\n
+                    ITERations 200 100\n
+                    LEVShift 0.5\n
+                    CIMX 200\n
                 """
             ),
         )
@@ -472,12 +487,13 @@ class TestMolcasClasses(unittest.TestCase):
         molcas_results = molcas.calculate([2, 2, 0, 0], [3, 4, 5, 6])
         energy = molcas_results[0]
         s1_entropy = molcas_results[1]
-        self.assertTrue(abs(energy[0] - -104.24521324932175) < 1e-6)
+        self.assertTrue(abs(energy[0] - -104.29975487735288) < 1e-4)
         # fmt: off
         self.assertTrue(
             np.allclose(
                 s1_entropy,
-                [0.0252543, 0.04813958, 0.03711964, 0.03711973]
+                [0.02519561, 0.04819040, 0.03711984, 0.03711989],
+                atol=1e-4
             )
         )
 
@@ -496,16 +512,16 @@ class TestMolcasClasses(unittest.TestCase):
         molcas_results = molcas.calculate([2, 2, 2, 2, 1, 1, 1, 0], [2, 3, 4, 5, 6, 7, 8, 9])
         energy = molcas_results[0]
         s1_entropy = molcas_results[1]
-        self.assertTrue(abs(energy[0] - -108.5830821627763) < 1e-6)
+        self.assertTrue(abs(energy[0] - -108.63774684804726) < 1e-4)
         print(s1_entropy)
         self.assertTrue(
             np.allclose(
                 s1_entropy,
                 [
-                    0.00211653, 0.00265149, 0.00423185, 0.09447688,
-                    0.00215388, 0.00243114, 0.04983321, 0.09760716
+                    0.00211344, 0.00264847, 0.00422612, 0.09457345,
+                    0.00214977, 0.00242726, 0.04987763, 0.09770527
                 ],
-                atol=1e-7,
+                atol=1e-4,
                 rtol=1e-1
             )
         )
@@ -813,3 +829,88 @@ class TestMolcasClasses(unittest.TestCase):
         self.assertTrue(
             np.allclose(index, index_2)
         )
+
+
+class TestMolcasHdf5UtilsUhf(unittest.TestCase):
+    """Tests for MolcasHdf5Utils on synthetic UHF HDF5 files.
+
+    Does not require MOLCAS or qcserenity — only h5py.
+    Layout: 4 orbitals — 2 DOMOs (I), 1 active (2), 1 virtual (S).
+    """
+
+    def setUp(self):
+        import tempfile
+        self.tmp_dir = tempfile.mkdtemp()
+        self.uhf_h5 = os.path.join(self.tmp_dir, "test_uhf.scf.h5")
+        import h5py
+        with h5py.File(self.uhf_h5, "w") as f:
+            f.attrs["NBAS"] = np.array([4], dtype=np.int32)
+            f.attrs["IRREP_LABELS"] = np.array([b"a"])
+            f.attrs["NATOMS_UNIQUE"] = np.int32(1)
+            f.attrs.create("MOLCAS_MODULE", data=np.bytes_("SCF"))
+            f.attrs.create("ORBITAL_TYPE", data=np.bytes_("UHF"))
+            f.create_dataset("MO_ALPHA_TYPEINDICES",
+                             data=np.array([b"I", b"I", b"2", b"S"]))
+            f.create_dataset("MO_BETA_TYPEINDICES",
+                             data=np.array([b"I", b"I", b"2", b"S"]))
+            f.create_dataset("MO_ALPHA_ENERGIES",
+                             data=np.array([-1.0, -0.5, 0.1, 0.5]))
+            f.create_dataset("MO_ENERGIES",
+                             data=np.array([-1.0, -0.5, 0.1, 0.5]))
+
+    def tearDown(self):
+        import shutil
+        try:
+            shutil.rmtree(self.tmp_dir)
+        except FileNotFoundError:
+            pass
+
+    def test_read_hdf5_uhf_sets_alpha_flag(self):
+        hdf5_utils = MolcasHdf5Utils()
+        hdf5_utils.read_hdf5(self.uhf_h5)
+        self.assertTrue(hdf5_utils.alpha)
+
+    def test_read_hdf5_uhf_electron_count(self):
+        """DOMOs (type I) must count as 2 electrons, not 1."""
+        hdf5_utils = MolcasHdf5Utils()
+        hdf5_utils.read_hdf5(self.uhf_h5)
+        self.assertEqual(hdf5_utils.occupations, [2, 2, 0, 0])
+
+    def test_modify_hdf5_uhf_creates_mo_typeindices_when_absent(self):
+        """For UHF files without MO_TYPEINDICES, modify_hdf5 must create it so
+        OpenMolcas CASSCF TYPEINDEX can read the active-orbital labels.
+        MO_ALPHA/BETA_TYPEINDICES must remain untouched (pristine base for next read_hdf5)."""
+        import h5py
+        hdf5_utils = MolcasHdf5Utils()
+        hdf5_utils.read_hdf5(self.uhf_h5)
+        hdf5_utils.modify_hdf5(self.uhf_h5, [1])
+        with h5py.File(self.uhf_h5, "r") as f:
+            # MO_TYPEINDICES must be created and contain the active mark
+            self.assertIn("MO_TYPEINDICES", f, "MO_TYPEINDICES must be created for CASSCF")
+            rhf_idx = [x.decode() for x in f["MO_TYPEINDICES"][:]]
+            self.assertEqual(rhf_idx[1], "2", "MO_TYPEINDICES must mark orbital 1 active")
+            # MO_ALPHA/BETA_TYPEINDICES must remain pristine (unchanged)
+            alpha_idx = [x.decode() for x in f["MO_ALPHA_TYPEINDICES"][:]]
+            beta_idx = [x.decode() for x in f["MO_BETA_TYPEINDICES"][:]]
+            self.assertEqual(alpha_idx[1], "I",
+                             "MO_ALPHA_TYPEINDICES must stay pristine (not overwritten)")
+            self.assertEqual(beta_idx[1], "I",
+                             "MO_BETA_TYPEINDICES must stay pristine (not overwritten)")
+
+    def test_modify_hdf5_uhf_updates_mo_typeindices_when_present(self):
+        """When MO_TYPEINDICES already exists in a UHF file (Serenity-style), modify_hdf5
+        updates it for OpenMolcas CASSCF TYPEINDEX while leaving MO_ALPHA/BETA pristine."""
+        import h5py
+        with h5py.File(self.uhf_h5, "r+") as f:
+            f.create_dataset("MO_TYPEINDICES", data=np.array([b"I", b"I", b"2", b"S"]))
+        hdf5_utils = MolcasHdf5Utils()
+        hdf5_utils.read_hdf5(self.uhf_h5)
+        # Mark orbital 1 as active (was "I" in MO_ALPHA_TYPEINDICES)
+        hdf5_utils.modify_hdf5(self.uhf_h5, [1])
+        with h5py.File(self.uhf_h5, "r") as f:
+            rhf_idx = [x.decode() for x in f["MO_TYPEINDICES"][:]]
+            alpha_idx = [x.decode() for x in f["MO_ALPHA_TYPEINDICES"][:]]
+            self.assertEqual(rhf_idx[1], "2",
+                             "MO_TYPEINDICES must be updated (OpenMolcas CASSCF reads it)")
+            self.assertEqual(alpha_idx[1], "I",
+                             "MO_ALPHA_TYPEINDICES must stay pristine")

@@ -59,6 +59,7 @@ class TestConsistentActiveSpaceConfiguration(unittest.TestCase):
                 self.save_per_geom_dmrgscf = False
                 self.n_workers = 1
                 self.allow_zero_valence_virtuals = False
+                self.plateau_values = None
 
         options = DummyOptions()
         xyz_files = [os.path.join(self.file_base_path, file_name) for file_name in ["n2_0.xyz", "n2_1.xyz"]]

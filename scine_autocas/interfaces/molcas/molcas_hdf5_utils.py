@@ -45,6 +45,7 @@ class MolcasHdf5Utils:
         "natoms",
         "module",
         "orbital_type",
+        "alpha",
         "type_indices",
         "mo_energies",
         "occupations",
@@ -65,6 +66,8 @@ class MolcasHdf5Utils:
         """name of the Molcas module"""
         self.orbital_type: str = ""
         """type of orbitals"""
+        self.alpha: bool = False
+        """True if HDF5 file uses MO_ALPHA_TYPEINDICES (UHF), False for MO_TYPEINDICES (RHF)"""
         # Datasets
         self.type_indices: np.ndarray
         """molcas typeindex for each orbital"""
@@ -98,10 +101,17 @@ class MolcasHdf5Utils:
         """
         h5_file = h5py.File(hdf5_file, "r+")
         type_indices = np.array(self.type_indices)
-        hdf5_type_indices = h5_file["MO_TYPEINDICES"]
         for i in cas_orbitals:
             type_indices[i] = "2"
-        hdf5_type_indices[...] = type_indices
+        # OpenMolcas CASSCF/DMRG TYPEINDEX always reads MO_TYPEINDICES.
+        # MO_ALPHA/BETA_TYPEINDICES must stay pristine — read_hdf5 reads
+        # from them on every call, so writing active marks there would
+        # corrupt the base for the next step (e.g. final CASSCF after
+        # the initial DMRG run picks up stale active-orbital labels).
+        if "MO_TYPEINDICES" in h5_file:
+            h5_file["MO_TYPEINDICES"][...] = type_indices
+        else:
+            h5_file.create_dataset("MO_TYPEINDICES", data=type_indices)
         h5_file.close()
 
     def read_hdf5(self, hdf5_file: str):
@@ -140,6 +150,7 @@ class MolcasHdf5Utils:
         except ValueError:
             pass
         self.type_indices = np.array(type_indices)
+        self.alpha = alpha
 
         indices = []
         for _, index in enumerate(type_indices):
@@ -165,10 +176,7 @@ class MolcasHdf5Utils:
             for _ in range(self.nbas[i]):
                 electrons = 0
                 if type_indices[tmp_index] == "I":
-                    if alpha:
-                        electrons = 1
-                    else:
-                        electrons = 2
+                    electrons = 2
                 self.symmetries.append(i)
                 self.occupations.append(electrons)
                 tmp_index += 1
