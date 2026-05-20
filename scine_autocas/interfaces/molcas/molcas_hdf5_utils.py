@@ -101,6 +101,11 @@ class MolcasHdf5Utils:
         """
         h5_file = h5py.File(hdf5_file, "r+")
         type_indices = np.array(self.type_indices)
+        # Clear stale active marks from any previous modify_hdf5 call on this file.
+        # Without this, a file modified by the DMRG step carries over active-orbital
+        # marks into the final CASSCF step, producing CAS(N, M+k) instead of CAS(N, M).
+        # type_indices is a bytes array (b"2", b"I", b"S"), so compare with b"2".
+        type_indices[type_indices == b"2"] = b"I"
         for i in cas_orbitals:
             type_indices[i] = "2"
         # OpenMolcas CASSCF/DMRG TYPEINDEX always reads MO_TYPEINDICES.

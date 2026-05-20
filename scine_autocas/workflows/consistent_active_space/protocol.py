@@ -462,6 +462,9 @@ def run_consistent_active_space_protocol(configuration: ConsistentActiveSpaceCon
             iface.set_initial_cas_state(False)
             cas_occ, cas_idx, was_forced, init_occ, init_idx = run_autocas(
                 mol, iface, nm, large_cas, force, plateau_vals)
+            # Restore base scratch so the final-calc job starts from the correct level.
+            # When n_workers=1 the job runs inline and mutations persist in the parent.
+            iface.environment.molcas_scratch_dir = base_scratch
             return cas_occ, cas_idx, iface.orbital_file, was_forced, init_occ, init_idx
         return job
 

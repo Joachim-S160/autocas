@@ -99,19 +99,34 @@ def combine_active_spaces(occupations: List[List[int]], active_spaces: List[List
         for i_orb, occ in zip(active_space, occupation):
             i_group = int(orbital_to_group[i_orb, i_sys])
             i_pos = orbital_groups[i_group][i_sys].index(i_orb)
-            slot_key = (i_group, i_pos)
-            if slot_key not in active_slot_occs:
-                active_slot_occs[slot_key] = [None] * n_systems
-            active_slot_occs[slot_key][i_sys] = occ
+            # When any orbital in a group is first encountered, initialise ALL
+            # position slots for that group so that partners of the active
+            # orbital are included in the union even if they never appear in
+            # any per-geom active_space directly.
+            group_size = len(orbital_groups[i_group][0])
+            for i_pos_all in range(group_size):
+                if (i_group, i_pos_all) not in active_slot_occs:
+                    active_slot_occs[(i_group, i_pos_all)] = [None] * n_systems
+            active_slot_occs[(i_group, i_pos)][i_sys] = occ
     # Build combined active spaces: each system uses its own occupation;
     # for systems where the orbital was not in the per-geom CAS, fall back to
     # the system's ROHF reference occupation (initial valence CAS) when
     # available, otherwise to the max of known occupations.
+    #
+    # Group-completion slots (known=[]) are orbitals autoCAS never selected at
+    # any geometry. For UHF open-shell calculations (initial_lookups non-empty),
+    # skip all such slots: alpha and beta spin-orbitals occupy the same IBO
+    # alignment group but are structurally distinct — completing the unselected
+    # spin partner is physically wrong. Group-completion is only meaningful for
+    # RHF/ROHF spatial orbital degenerate subspaces (no initial_lookups).
     new_active_spaces: List[List[int]] = [[] for _ in range(n_systems)]
     new_occupations: List[List[int]] = [[] for _ in range(n_systems)]
     for (i_group, i_pos), occ_list in active_slot_occs.items():
         known = [o for o in occ_list if o is not None]
-        max_known = max(known)
+        if not known:
+            if initial_lookups:
+                continue
+        max_known = max(known) if known else 0
         for i_sys, sys_orbitals in enumerate(orbital_groups[i_group]):
             orb_idx = sys_orbitals[i_pos]
             new_active_spaces[i_sys].append(orb_idx)

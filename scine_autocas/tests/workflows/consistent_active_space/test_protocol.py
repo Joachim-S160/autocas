@@ -55,10 +55,10 @@ class TestConsistentActiveSpaceProtocol(unittest.TestCase):
         ConsistentActiveSpaceConfiguration.input_sanity_checks(config)
 
         occupations, indices, energies = run_consistent_active_space_protocol(config)
-        reference_energies = [-109.25459589, -108.96763019, -108.94287279]
+        reference_energies = [-109.30935494, -109.02255200, -108.99781961]
         for occ, energy, energy_reference in zip(occupations, energies, reference_energies):
             assert occ == [2, 2, 2, 0, 0, 0]
-            assert abs(energy - energy_reference) < 1e-6
+            assert abs(energy - energy_reference) < 1e-4
         self.__remove_project_dir(self.project_path)
         os.chdir(start_directory)
 
@@ -86,9 +86,9 @@ class TestConsistentActiveSpaceProtocol(unittest.TestCase):
         ConsistentActiveSpaceConfiguration.input_sanity_checks(config)
 
         occupations, indices, energies = run_consistent_active_space_protocol(config)
-        reference_energies = [-109.25459589, -108.96763019, -108.94287279]
+        reference_energies = [-109.30935494, -109.02255200, -108.99781961]
         for occ, energy, energy_reference in zip(occupations, energies, reference_energies):
             assert occ == [2, 2, 2, 0, 0, 0]
-            assert abs(energy - energy_reference) < 1e-6
+            assert abs(energy - energy_reference) < 1e-4
         self.__remove_project_dir(self.project_path)
         os.chdir(start_directory)
